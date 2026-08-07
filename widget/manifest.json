@@ -1,0 +1,31 @@
+{
+  "widget": {
+    "name": "widget.name",
+    "description": "widget.description",
+    "short_description": "widget.short_description",
+    "code": "service_banner",
+    "secret_key": "CHANGE_ME_GENERATED_BY_AMOCRM_ON_INTEGRATION_CREATION",
+    "version": "1.0.0",
+    "locale": [
+      "ru",
+      "en"
+    ],
+    "installation": true,
+    "interface_version": 2
+  },
+  "locations": [
+    "llist-1"
+  ],
+  "settings": {
+    "api_url": {
+      "name": "settings.api_url",
+      "type": "text",
+      "required": true
+    },
+    "api_token": {
+      "name": "settings.api_token",
+      "type": "pass",
+      "required": true
+    }
+  }
+}

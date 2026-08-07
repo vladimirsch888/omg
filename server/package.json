@@ -1,0 +1,19 @@
+{
+  "name": "amocrm-service-banner-server",
+  "version": "1.0.0",
+  "description": "Backend for the amoCRM \"Service Banner\" widget: stores and serves the admin-managed banner text shown above the deals list.",
+  "private": true,
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  }
+}

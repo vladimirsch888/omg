@@ -1,0 +1,11 @@
+{
+  "widget": {
+    "name": "Service Banner",
+    "description": "Shows a text notice above the deals list (card/kanban view, below the search and filter bar). The text is set by an administrator and is visible to every user of the account.",
+    "short_description": "Text banner above the deals list"
+  },
+  "settings": {
+    "api_url": "Backend URL (e.g. https://your-server.example.com)",
+    "api_token": "Backend admin token"
+  }
+}
