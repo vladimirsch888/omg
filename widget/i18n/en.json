@@ -5,7 +5,6 @@
     "short_description": "Text banner above the deals list"
   },
   "settings": {
-    "api_url": "Backend URL (e.g. https://your-server.example.com)",
-    "api_token": "Backend admin token"
+    "banner_text": "Notice text shown above the deals list (e.g. Account is under maintenance). Leave empty to hide the banner."
   }
 }

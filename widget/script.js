@@ -2,19 +2,24 @@
  * amoCRM widget: "Service Banner"
  *
  * Shows an admin-managed text notice above the deals list (kanban/card view),
- * below the search and filter bar. The text is stored in an external
- * Node.js/Express backend (see /server) and is the same for every user of
- * the account - only an account admin can change it (see README.md for the
- * access-control notes).
+ * below the search and filter bar. The text is stored directly in amoCRM's
+ * own widget settings (manifest field "banner_text") - no external backend,
+ * no OAuth. Only users who can open Settings -> Integrations (amoCRM's own
+ * access control) can change it; every user of the account sees the same
+ * text.
+ *
+ * Freshness note: self.get_settings() reflects the value saved at the time
+ * amoCRM (re)initializes the widget for a given browser session - i.e. a
+ * user already on the deals list page will see an updated text after
+ * reloading the page (or navigating away from and back to the deals list),
+ * not instantly. For a "service notice" style banner this is an acceptable
+ * trade-off for not needing any server at all.
  */
 define(['jquery'], function ($) {
   return function () {
     var self = this;
 
     var BANNER_ID = 'service-banner-widget__banner';
-    var POLL_INTERVAL_MS = 60000;
-    var pollTimer = null;
-    var lastRenderedText = null;
 
     // The exact markup of the deals-list page can differ between amoCRM/Kommo
     // interface versions. These selectors are tried in order; the first one
@@ -29,27 +34,6 @@ define(['jquery'], function ($) {
       '.js-pipeline-content',
       '#content'
     ];
-
-    function log() {
-      if (window.console && window.console.log) {
-        var args = Array.prototype.slice.call(arguments);
-        args.unshift('[service-banner-widget]');
-        window.console.log.apply(window.console, args);
-      }
-    }
-
-    function getConfig() {
-      var settings = (self.get_settings && self.get_settings()) || {};
-      return {
-        apiUrl: String(settings.api_url || '').replace(/\/+$/, ''),
-        token: String(settings.api_token || '')
-      };
-    }
-
-    function getDomain() {
-      var system = (self.system && self.system()) || {};
-      return system.subdomain || '';
-    }
 
     function findContainer() {
       for (var i = 0; i < CONTAINER_SELECTORS.length; i++) {
@@ -88,70 +72,29 @@ define(['jquery'], function ($) {
       return $banner;
     }
 
-    function renderText(text) {
-      var trimmed = String(text || '').trim();
-      if (trimmed === lastRenderedText) {
-        return;
-      }
-      lastRenderedText = trimmed;
+    function renderBanner() {
+      var settings = (self.get_settings && self.get_settings()) || {};
+      var text = String(settings.banner_text || '').trim();
 
       var $banner = ensureBannerNode();
       if (!$banner) {
         return;
       }
 
-      if (!trimmed) {
+      if (!text) {
         $banner.empty();
         return;
       }
 
-      $banner.text(trimmed);
-    }
-
-    function fetchAndRender() {
-      var config = getConfig();
-      var domain = getDomain();
-
-      if (!config.apiUrl || !domain) {
-        return;
-      }
-
-      $.ajax({
-        url: config.apiUrl + '/api/banner',
-        method: 'GET',
-        data: { domain: domain },
-        dataType: 'json',
-        cache: false,
-        timeout: 8000
-      }).done(function (response) {
-        renderText(response && response.text);
-      }).fail(function (xhr) {
-        log('failed to load banner text', xhr && xhr.status);
-      });
-    }
-
-    function startPolling() {
-      stopPolling();
-      fetchAndRender();
-      pollTimer = window.setInterval(fetchAndRender, POLL_INTERVAL_MS);
-    }
-
-    function stopPolling() {
-      if (pollTimer) {
-        window.clearInterval(pollTimer);
-        pollTimer = null;
-      }
+      $banner.text(text);
     }
 
     this.callbacks = {
-      // Uses the manifest-defined settings fields (api_url, api_token) and
-      // amoCRM's own auto-generated settings dialog - no custom UI needed
-      // here. Access to Settings -> Integrations is restricted to account
-      // admins by amoCRM's own permission model, which is how "only an
-      // admin can configure the widget" is enforced.
+      // Uses amoCRM's own auto-generated settings dialog for the
+      // manifest-defined "banner_text" field - no custom UI needed.
+      // Re-render immediately for the current session right after save.
       onSave: function () {
-        lastRenderedText = null; // force a re-render with the new config
-        fetchAndRender();
+        renderBanner();
         return true;
       },
 
@@ -160,7 +103,7 @@ define(['jquery'], function ($) {
       },
 
       init: function () {
-        startPolling();
+        renderBanner();
         return true;
       },
 
@@ -173,7 +116,6 @@ define(['jquery'], function ($) {
       },
 
       destroy: function () {
-        stopPolling();
         $('#' + BANNER_ID).remove();
       }
     };
