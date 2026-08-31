@@ -16,6 +16,7 @@ const navItems = [
 const adminItems = [
   { to: "/admin/dictionaries", label: "Справочники" },
   { to: "/admin/users", label: "Пользователи" },
+  { to: "/admin/settings", label: "Настройки" },
 ];
 
 export function Layout() {

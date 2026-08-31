@@ -126,6 +126,15 @@ export interface CompanySummary {
   hoursThisMonth: number;
 }
 
+export interface DemoStatus {
+  hasDemoData: boolean;
+  clients: number;
+  projects: number;
+  operations: number;
+  requests: number;
+  timeEntries: number;
+}
+
 export interface User {
   id: string;
   email: string;

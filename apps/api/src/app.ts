@@ -12,6 +12,7 @@ import { operationsRouter } from "./modules/operations/operations.routes";
 import { requestsRouter } from "./modules/requests/requests.routes";
 import { timeEntriesRouter } from "./modules/timeEntries/timeEntries.routes";
 import { reportsRouter } from "./modules/reports/reports.routes";
+import { demoRouter } from "./modules/demo/demo.routes";
 import type { AppEnv } from "./types/hono";
 
 export const app = new Hono<AppEnv>();
@@ -29,6 +30,7 @@ app.route("/api/operations", operationsRouter);
 app.route("/api/requests", requestsRouter);
 app.route("/api/time-entries", timeEntriesRouter);
 app.route("/api/reports", reportsRouter);
+app.route("/api/demo", demoRouter);
 
 app.onError((err, c) => {
   if (err instanceof AppError) {

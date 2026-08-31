@@ -70,6 +70,7 @@ model Client {
   contactPhone   String?
   status         ClientStatus @default(ACTIVE)
   notes          String?
+  isDemo         Boolean  @default(false)
   createdAt      DateTime @default(now())
 
   projects Project[]
@@ -107,6 +108,7 @@ model Project {
   endDate        DateTime?
   hourlyRate     Decimal? @db.Decimal(14, 2)
   budgetHours    Decimal? @db.Decimal(10, 2)
+  isDemo         Boolean  @default(false)
   createdAt      DateTime @default(now())
 
   operations  Operation[]
@@ -198,6 +200,7 @@ model Operation {
 
   counterparty String?
   description  String?
+  isDemo       Boolean @default(false)
 
   createdById String?
   createdBy   User?   @relation("OperationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -241,6 +244,7 @@ model Request {
   requestTypeValueId String?
   requestTypeValue   DictionaryValue? @relation("RequestType", fields: [requestTypeValueId], references: [id])
 
+  isDemo    Boolean   @default(false)
   createdAt DateTime  @default(now())
   closedAt  DateTime?
 
@@ -267,6 +271,7 @@ model TimeEntry {
   date        DateTime
   hours       Decimal  @db.Decimal(6, 2)
   description String?
+  isDemo      Boolean  @default(false)
   createdAt   DateTime @default(now())
 
   @@index([organizationId])
