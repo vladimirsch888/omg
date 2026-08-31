@@ -1,4 +1,5 @@
 import { prisma } from "../../prisma";
+import { billSubscription } from "../subscriptions/subscriptions.service";
 
 /**
  * Demo data lives entirely behind the `isDemo` flag on Client, Project,
@@ -174,22 +175,116 @@ export async function seedDemoData(organizationId: string, userId: string) {
     technopark: projectTechnopark.id,
   };
 
+  // Product catalog ("товарная матрица") — a handful of licenses across the
+  // vendors, with different durations and vendor-share/tax terms, so the
+  // subscription feature has something realistic to bill from.
+  const productAmoCRM = await prisma.licenseProduct.create({
+    data: {
+      organizationId,
+      isDemo: true,
+      name: "amoCRM Professional (10 мест)",
+      categoryValueId: dict.category.license_amocrm ?? null,
+      defaultPrice: 45000,
+      defaultDurationMonths: 1,
+      defaultVendorSharePercent: 50,
+      defaultTaxable: true,
+    },
+  });
+  const productWazzup = await prisma.licenseProduct.create({
+    data: {
+      organizationId,
+      isDemo: true,
+      name: "Wazzup Стандарт",
+      categoryValueId: dict.category.license_wazzup ?? null,
+      defaultPrice: 18000,
+      defaultDurationMonths: 1,
+      defaultVendorSharePercent: 50,
+      defaultTaxable: true,
+    },
+  });
+  const productNova = await prisma.licenseProduct.create({
+    data: {
+      organizationId,
+      isDemo: true,
+      name: "NOVA Годовая лицензия",
+      categoryValueId: dict.category.license_nova ?? null,
+      defaultPrice: 250000,
+      defaultDurationMonths: 12,
+      defaultVendorSharePercent: 50,
+      defaultTaxable: true,
+    },
+  });
+  const productWazzupCard = await prisma.licenseProduct.create({
+    data: {
+      organizationId,
+      isDemo: true,
+      name: "Wazzup Mini (доп. номер, оплата на карту)",
+      categoryValueId: dict.category.license_wazzup ?? null,
+      defaultPrice: 6000,
+      defaultDurationMonths: 1,
+      defaultVendorSharePercent: 50,
+      defaultTaxable: false,
+    },
+  });
+
+  // Bills `monthsOfHistory` worth of periods for a new subscription, reusing
+  // the exact same billSubscription() the "Выставить следующий платёж"
+  // button calls — so demo history and real usage can never disagree on
+  // how the financial waterfall is computed.
+  async function seedSubscription(
+    clientId: string,
+    projectId: string,
+    product: { id: string; defaultPrice: unknown; defaultDurationMonths: number; defaultVendorSharePercent: unknown; defaultTaxable: boolean; name: string },
+    monthsOfHistory: number,
+    overrides: Partial<{ price: number; vendorSharePercent: number; taxable: boolean; durationMonths: number }> = {}
+  ) {
+    const durationMonths = overrides.durationMonths ?? product.defaultDurationMonths;
+    const startDate = dateInPast(monthsOfHistory, 5);
+    let subscription = await prisma.subscription.create({
+      data: {
+        organizationId,
+        isDemo: true,
+        clientId,
+        projectId,
+        licenseProductId: product.id,
+        price: overrides.price ?? Number(product.defaultPrice),
+        durationMonths,
+        vendorSharePercent: overrides.vendorSharePercent ?? Number(product.defaultVendorSharePercent),
+        taxable: overrides.taxable ?? product.defaultTaxable,
+        startDate,
+        nextBillingDate: startDate,
+      },
+      include: { client: true, licenseProduct: true },
+    });
+
+    const periods = Math.max(1, Math.floor(monthsOfHistory / durationMonths));
+    let operationsCreated = 0;
+    for (let i = 0; i < periods; i++) {
+      const result = await billSubscription(subscription, subscription.nextBillingDate, userId);
+      operationsCreated += result.expenseOperation ? 2 : 1;
+      subscription = { ...subscription, nextBillingDate: result.subscription.nextBillingDate };
+    }
+    return operationsCreated;
+  }
+
+  let subscriptionOperationsCount = 0;
+  subscriptionOperationsCount += await seedSubscription(clientRomashka.id, projectByKey.romashkaLicense, productAmoCRM, 6);
+  subscriptionOperationsCount += await seedSubscription(clientSfera.id, projectByKey.sfera, productWazzup, 6);
+  subscriptionOperationsCount += await seedSubscription(clientKuznetsov.id, projectByKey.kuznetsovLicense, productNova, 8);
+  // Paid straight to a personal card: vendor still takes its 50%, but no tax reserve is set aside.
+  subscriptionOperationsCount += await seedSubscription(clientTechnopark.id, projectByKey.technopark, productWazzupCard, 3);
+
   // Monthly recurring income/expense streams. `monthsBack` = how many months
   // of history to generate, counting back from the current month.
   const streams: RevenueStream[] = [
-    { projectKey: "romashkaLicense", type: "INCOME", categoryCode: "license_amocrm", baseAmount: 45000, jitter: 5000, monthsBack: 8, counterparty: 'ООО "Ромашка"', description: "Оплата лицензии amoCRM на 10 пользователей" },
-    { projectKey: "romashkaLicense", type: "EXPENSE", categoryCode: "license_cost", baseAmount: 30000, jitter: 0, monthsBack: 8, counterparty: "amoCRM (официальный партнёр)", description: "Закупка лицензий у поставщика" },
     { projectKey: "romashkaMain", type: "INCOME", categoryCode: "client_support", baseAmount: 80000, jitter: 8000, monthsBack: 8, counterparty: 'ООО "Ромашка"', description: "Сопровождение CRM за месяц" },
-    { projectKey: "sfera", type: "INCOME", categoryCode: "license_wazzup", baseAmount: 18000, jitter: 2000, monthsBack: 6, counterparty: 'ООО "Сфера Логистик"', description: "Оплата лицензии Wazzup" },
-    { projectKey: "sfera", type: "EXPENSE", categoryCode: "license_cost", baseAmount: 12000, jitter: 0, monthsBack: 6, counterparty: "Wazzup (поставщик)", description: "Закупка лицензии Wazzup" },
-    { projectKey: "kuznetsovLicense", type: "INCOME", categoryCode: "license_nova", baseAmount: 25000, jitter: 0, monthsBack: 3, counterparty: "ИП Кузнецов А.С.", description: "Оплата лицензии NOVA" },
     { projectKey: "kuznetsovMain", type: "INCOME", categoryCode: "client_support", baseAmount: 20000, jitter: 0, monthsBack: 3, counterparty: "ИП Кузнецов А.С.", description: "Сопровождение NOVA" },
     { projectKey: "technopark", type: "INCOME", categoryCode: "client_work", baseAmount: 150000, jitter: 30000, monthsBack: 5, counterparty: 'ООО "Технопарк Инвест"', description: "Работы по внедрению amoCRM" },
   ];
 
   // Company-level overhead, not tied to a single client/project.
   const overheadStreams: Array<Omit<RevenueStream, "projectKey">> = [
-    { type: "EXPENSE", categoryCode: "salary", baseAmount: 220000, jitter: 0, monthsBack: 8, counterparty: "Штат сотрудников", description: "Заработная плата" },
+    { type: "EXPENSE", categoryCode: "salary", baseAmount: 110000, jitter: 0, monthsBack: 8, counterparty: "Штат сотрудников", description: "Заработная плата" },
     { type: "EXPENSE", categoryCode: "hosting_software", baseAmount: 9000, jitter: 1000, monthsBack: 8, counterparty: "Various SaaS", description: "Хостинг и корпоративное ПО" },
     { type: "EXPENSE", categoryCode: "marketing", baseAmount: 25000, jitter: 10000, monthsBack: 5, counterparty: "Рекламное агентство", description: "Продвижение и реклама" },
     { type: "EXPENSE", categoryCode: "office_admin", baseAmount: 15000, jitter: 0, monthsBack: 8, counterparty: "Аренда офиса", description: "Аренда и административные расходы" },
@@ -314,24 +409,30 @@ export async function seedDemoData(organizationId: string, userId: string) {
   return {
     clients: 4,
     projects: 6,
-    operations: operationsToCreate.length,
+    licenseProducts: 4,
+    subscriptions: 4,
+    operations: operationsToCreate.length + subscriptionOperationsCount,
     requests: requests.length,
     timeEntries: timeEntries.length,
   };
 }
 
 export async function clearDemoData(organizationId: string) {
-  // Sequential and in this order on purpose: Operation and TimeEntry->Request
-  // relations aren't all cascading deletes, so deleting parents first could
-  // race with child cleanup if run concurrently.
+  // Sequential and in this order on purpose: children before parents, since
+  // not every relation cascades on delete (Operation->Project/Subscription
+  // are SetNull, not Cascade) and running these concurrently could race.
   const operations = await prisma.operation.deleteMany({ where: { organizationId, isDemo: true } });
   const timeEntries = await prisma.timeEntry.deleteMany({ where: { organizationId, isDemo: true } });
   const requests = await prisma.request.deleteMany({ where: { organizationId, isDemo: true } });
+  const subscriptions = await prisma.subscription.deleteMany({ where: { organizationId, isDemo: true } });
+  const licenseProducts = await prisma.licenseProduct.deleteMany({ where: { organizationId, isDemo: true } });
   const projects = await prisma.project.deleteMany({ where: { organizationId, isDemo: true } });
   const clients = await prisma.client.deleteMany({ where: { organizationId, isDemo: true } });
   return {
     operations: operations.count,
     timeEntries: timeEntries.count,
+    subscriptions: subscriptions.count,
+    licenseProducts: licenseProducts.count,
     requests: requests.count,
     projects: projects.count,
     clients: clients.count,
@@ -339,13 +440,24 @@ export async function clearDemoData(organizationId: string) {
 }
 
 export async function getDemoStatus(organizationId: string) {
-  const [clients, projects, operations, requests, timeEntries] = await Promise.all([
+  const [clients, projects, operations, requests, timeEntries, subscriptions, licenseProducts] = await Promise.all([
     prisma.client.count({ where: { organizationId, isDemo: true } }),
     prisma.project.count({ where: { organizationId, isDemo: true } }),
     prisma.operation.count({ where: { organizationId, isDemo: true } }),
     prisma.request.count({ where: { organizationId, isDemo: true } }),
     prisma.timeEntry.count({ where: { organizationId, isDemo: true } }),
+    prisma.subscription.count({ where: { organizationId, isDemo: true } }),
+    prisma.licenseProduct.count({ where: { organizationId, isDemo: true } }),
   ]);
-  const total = clients + projects + operations + requests + timeEntries;
-  return { hasDemoData: total > 0, clients, projects, operations, requests, timeEntries };
+  const total = clients + projects + operations + requests + timeEntries + subscriptions + licenseProducts;
+  return {
+    hasDemoData: total > 0,
+    clients,
+    projects,
+    operations,
+    requests,
+    timeEntries,
+    subscriptions,
+    licenseProducts,
+  };
 }

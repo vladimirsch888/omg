@@ -1,5 +1,7 @@
 import { prisma } from "../../prisma";
+import { config } from "../../config";
 import { getProjectAndDescendantIds } from "../projects/projects.service";
+import { computeWaterfall } from "../finance/waterfall";
 
 export interface ReportFilters {
   from?: string;
@@ -237,5 +239,36 @@ export async function getCompanySummary(organizationId: string) {
     ddsTrend: trendDds.periods,
     topClients: ltv.slice(0, 10),
     hoursThisMonth: Number(hoursThisMonth._sum.hours ?? 0),
+  };
+}
+
+/**
+ * "Сколько денег у меня реально есть": cash actually in hand (income minus
+ * expenses on a cash basis, which already nets out vendor payouts recorded
+ * as real EXPENSE operations) minus the tax reserve accrued from taxable
+ * income — see apps/api/src/modules/finance/waterfall.ts.
+ */
+export async function getCashPosition(organizationId: string) {
+  const [dds, incomeOps] = await Promise.all([
+    getDDS(organizationId, {}),
+    prisma.operation.findMany({
+      where: { organizationId, type: "INCOME", status: "ACTUAL", paymentDate: { not: null } },
+      select: { amount: true, vendorSharePercent: true, taxable: true },
+    }),
+  ]);
+
+  let taxReserveAccrued = 0;
+  for (const op of incomeOps) {
+    const { taxReserve } = computeWaterfall(Number(op.amount), Number(op.vendorSharePercent), op.taxable);
+    taxReserveAccrued += taxReserve;
+  }
+
+  const cumulativeCash = dds.totals.endingBalance;
+
+  return {
+    cumulativeCash,
+    taxReserveAccrued,
+    spendable: cumulativeCash - taxReserveAccrued,
+    taxReservePercent: config.taxReservePercent,
   };
 }

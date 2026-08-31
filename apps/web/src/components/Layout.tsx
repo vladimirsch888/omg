@@ -7,6 +7,8 @@ const navItems = [
   { to: "/clients", label: "Клиенты" },
   { to: "/projects", label: "Проекты" },
   { to: "/operations", label: "Операции" },
+  { to: "/products", label: "Продукты" },
+  { to: "/subscriptions", label: "Подписки" },
   { to: "/requests", label: "Заявки" },
   { to: "/time-tracking", label: "Учёт часов" },
   { to: "/reports/pnl", label: "PnL" },

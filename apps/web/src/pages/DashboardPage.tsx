@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
 import { api } from "../api/client";
-import { CompanySummary } from "../api/types";
+import { CashPosition, CompanySummary } from "../api/types";
 import { StatCard, Card } from "../components/Card";
 import { formatMoney } from "../utils/format";
 
 export function DashboardPage() {
   const [data, setData] = useState<CompanySummary | null>(null);
+  const [cash, setCash] = useState<CashPosition | null>(null);
 
   useEffect(() => {
     api.get<CompanySummary>("/reports/summary").then((res) => setData(res.data));
+    api.get<CashPosition>("/reports/cash-position").then((res) => setCash(res.data));
   }, []);
 
   if (!data) return <div className="text-slate-500">Загрузка…</div>;
@@ -34,6 +36,30 @@ export function DashboardPage() {
         <StatCard label="Прибыль (текущий месяц)" value={formatMoney(data.currentMonth.profit)} />
         <StatCard label="Часы за месяц" value={`${data.hoursThisMonth} ч`} />
       </div>
+
+      {cash && (
+        <Card title="Деньги на руках">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <div className="text-sm text-slate-500">Всего на счетах</div>
+              <div className="mt-1 text-2xl font-semibold">{formatMoney(cash.cumulativeCash)}</div>
+            </div>
+            <div>
+              <div className="text-sm text-slate-500">Резерв на налог ({cash.taxReservePercent}%)</div>
+              <div className="mt-1 text-2xl font-semibold text-amber-600">{formatMoney(cash.taxReserveAccrued)}</div>
+            </div>
+            <div>
+              <div className="text-sm text-slate-500">Свободно к использованию</div>
+              <div className="mt-1 text-2xl font-semibold text-green-700">{formatMoney(cash.spendable)}</div>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-slate-400">
+            «Всего на счетах» — фактическое движение денег (доходы минус расходы, включая уже выплаченную
+            долю вендору). «Резерв на налог» — то, что накопительно отложено с облагаемых поступлений
+            и пока не потрачено. «Свободно» — то, чем можно распоряжаться прямо сейчас.
+          </p>
+        </Card>
+      )}
 
       <Card title="Прибыль и денежный поток за 12 месяцев">
         <div className="h-72 w-full">

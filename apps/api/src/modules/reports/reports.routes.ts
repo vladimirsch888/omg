@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { requireAuth } from "../../middleware/auth.middleware";
-import { getPnL, getDDS, getClientLTV, getCompanySummary, ReportFilters } from "./reports.service";
+import { getPnL, getDDS, getClientLTV, getCompanySummary, getCashPosition, ReportFilters } from "./reports.service";
 import type { AppEnv } from "../../types/hono";
 
 export const reportsRouter = new Hono<AppEnv>();
@@ -36,5 +36,11 @@ reportsRouter.get("/ltv", async (c) => {
 reportsRouter.get("/summary", async (c) => {
   const auth = c.get("auth");
   const result = await getCompanySummary(auth.organizationId);
+  return c.json(result);
+});
+
+reportsRouter.get("/cash-position", async (c) => {
+  const auth = c.get("auth");
+  const result = await getCashPosition(auth.organizationId);
   return c.json(result);
 });

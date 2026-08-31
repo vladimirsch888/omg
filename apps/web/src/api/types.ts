@@ -64,6 +64,9 @@ export interface Operation {
   paymentMethodValue?: DictionaryValue | null;
   counterparty?: string | null;
   description?: string | null;
+  vendorSharePercent?: string | number;
+  taxable?: boolean;
+  subscriptionId?: string | null;
 }
 
 export interface RequestTicket {
@@ -133,6 +136,45 @@ export interface DemoStatus {
   operations: number;
   requests: number;
   timeEntries: number;
+  subscriptions: number;
+  licenseProducts: number;
+}
+
+export interface LicenseProduct {
+  id: string;
+  name: string;
+  categoryValueId?: string | null;
+  categoryValue?: DictionaryValue | null;
+  defaultPrice: string | number;
+  defaultDurationMonths: number;
+  defaultVendorSharePercent: string | number;
+  defaultTaxable: boolean;
+  isActive: boolean;
+}
+
+export interface Subscription {
+  id: string;
+  clientId: string;
+  client?: { id: string; name: string };
+  projectId?: string | null;
+  project?: { id: string; name: string } | null;
+  licenseProductId: string;
+  licenseProduct?: { id: string; name: string };
+  price: string | number;
+  durationMonths: number;
+  vendorSharePercent: string | number;
+  taxable: boolean;
+  status: "ACTIVE" | "PAUSED" | "CANCELLED";
+  startDate: string;
+  nextBillingDate: string;
+  operations?: Operation[];
+}
+
+export interface CashPosition {
+  cumulativeCash: number;
+  taxReserveAccrued: number;
+  spendable: number;
+  taxReservePercent: number;
 }
 
 export interface User {

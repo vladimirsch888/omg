@@ -63,6 +63,10 @@ const operationSchema = z.object({
   paymentMethodValueId: z.string().uuid().optional().nullable(),
   counterparty: z.string().optional(),
   description: z.string().optional(),
+  // Financial waterfall for manually entered income (services have 0% vendor
+  // share; untaxed direct "card" transfers set taxable to false).
+  vendorSharePercent: z.number().min(0).max(100).optional(),
+  taxable: z.boolean().optional(),
 });
 
 operationsRouter.post("/", async (c) => {
@@ -89,6 +93,8 @@ operationsRouter.post("/", async (c) => {
       paymentMethodValueId: body.paymentMethodValueId ?? null,
       counterparty: body.counterparty,
       description: body.description,
+      vendorSharePercent: body.vendorSharePercent ?? 0,
+      taxable: body.taxable ?? true,
       createdById: auth.userId,
     },
   });

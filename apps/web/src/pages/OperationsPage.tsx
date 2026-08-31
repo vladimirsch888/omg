@@ -18,6 +18,8 @@ export function OperationsPage() {
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
   const [categoryValueId, setCategoryValueId] = useState("");
   const [description, setDescription] = useState("");
+  const [vendorSharePercent, setVendorSharePercent] = useState("0");
+  const [taxable, setTaxable] = useState(true);
 
   function load() {
     api.get("/operations", { params: { pageSize: 100 } }).then((res) => setOperations(res.data.items));
@@ -45,6 +47,8 @@ export function OperationsPage() {
       paymentDate: paymentDate ? new Date(paymentDate).toISOString() : undefined,
       categoryValueId: categoryValueId || undefined,
       description: description || undefined,
+      vendorSharePercent: type === "INCOME" ? Number(vendorSharePercent) : undefined,
+      taxable: type === "INCOME" ? taxable : undefined,
     });
     setAmount("");
     setDescription("");
@@ -89,6 +93,18 @@ export function OperationsPage() {
               <label className="text-xs text-slate-400">Дата оплаты (для ДДС)</label>
               <input type="date" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
             </div>
+            {type === "INCOME" && (
+              <>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-slate-400">Доля вендора, % (0 для услуг)</label>
+                  <input type="number" min="0" max="100" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={vendorSharePercent} onChange={(e) => setVendorSharePercent(e.target.value)} />
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={taxable} onChange={(e) => setTaxable(e.target.checked)} />
+                  Облагается налогом (снять для оплаты на карту)
+                </label>
+              </>
+            )}
             <input className="rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-3" placeholder="Описание" value={description} onChange={(e) => setDescription(e.target.value)} />
             <button type="submit" className="w-fit rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
               Сохранить
