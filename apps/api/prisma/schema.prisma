@@ -1,0 +1,275 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Organization / Users
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  currency  String   @default("RUB")
+  createdAt DateTime @default(now())
+
+  users           User[]
+  clients         Client[]
+  projects        Project[]
+  dictionaryTypes DictionaryType[]
+  operations      Operation[]
+  requests        Request[]
+  timeEntries     TimeEntry[]
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MANAGER
+  VIEWER
+}
+
+model User {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String   @unique
+  passwordHash   String
+  name           String
+  role           Role     @default(MANAGER)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  timeEntries    TimeEntry[]
+  operations     Operation[] @relation("OperationCreatedBy")
+}
+
+// ---------------------------------------------------------------------------
+// Clients (B2B)
+// ---------------------------------------------------------------------------
+
+enum ClientStatus {
+  ACTIVE
+  PAUSED
+  CHURNED
+}
+
+model Client {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  legalName      String?
+  inn            String?
+  contactPerson  String?
+  contactEmail   String?
+  contactPhone   String?
+  status         ClientStatus @default(ACTIVE)
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  projects Project[]
+
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Projects — client -> project -> subproject (max depth 2)
+// ---------------------------------------------------------------------------
+
+enum ProjectStatus {
+  ACTIVE
+  PAUSED
+  CLOSED
+}
+
+model Project {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  parentId String?
+  parent   Project?  @relation("ProjectHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children Project[] @relation("ProjectHierarchy")
+
+  name           String
+  description    String?
+  typeValueId    String?
+  typeValue      DictionaryValue? @relation(fields: [typeValueId], references: [id])
+  status         ProjectStatus @default(ACTIVE)
+  startDate      DateTime?
+  endDate        DateTime?
+  hourlyRate     Decimal? @db.Decimal(14, 2)
+  budgetHours    Decimal? @db.Decimal(10, 2)
+  createdAt      DateTime @default(now())
+
+  operations  Operation[]
+  timeEntries TimeEntry[]
+  requests    Request[]
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([parentId])
+}
+
+// ---------------------------------------------------------------------------
+// Generic dictionaries (reference books) — fully user-configurable
+// ---------------------------------------------------------------------------
+
+model DictionaryType {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  code           String
+  name           String
+  description    String?
+  isSystem       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  values DictionaryValue[]
+
+  @@unique([organizationId, code])
+}
+
+model DictionaryValue {
+  id               String   @id @default(uuid())
+  dictionaryTypeId String
+  dictionaryType   DictionaryType @relation(fields: [dictionaryTypeId], references: [id], onDelete: Cascade)
+  organizationId   String
+  code             String
+  name             String
+  color            String?
+  sortOrder        Int      @default(0)
+  isActive         Boolean  @default(true)
+
+  operations Operation[] @relation("OperationCategory")
+  paymentOps Operation[] @relation("OperationPaymentMethod")
+  projects   Project[]
+  requests   Request[]  @relation("RequestType")
+
+  @@unique([dictionaryTypeId, code])
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Operations (income / expense)
+// ---------------------------------------------------------------------------
+
+enum OperationType {
+  INCOME
+  EXPENSE
+}
+
+enum OperationStatus {
+  PLANNED
+  ACTUAL
+}
+
+model Operation {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  type   OperationType
+  status OperationStatus @default(ACTUAL)
+
+  amount   Decimal @db.Decimal(14, 2)
+  currency String  @default("RUB")
+
+  // accrual method date -> used for PnL
+  accrualDate DateTime
+  // cash method date -> used for DDS (cash flow); null = money not moved yet
+  paymentDate DateTime?
+
+  categoryValueId String?
+  categoryValue   DictionaryValue? @relation("OperationCategory", fields: [categoryValueId], references: [id])
+
+  paymentMethodValueId String?
+  paymentMethodValue   DictionaryValue? @relation("OperationPaymentMethod", fields: [paymentMethodValueId], references: [id])
+
+  counterparty String?
+  description  String?
+
+  createdById String?
+  createdBy   User?   @relation("OperationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([organizationId, accrualDate])
+  @@index([organizationId, paymentDate])
+  @@index([projectId])
+}
+
+// ---------------------------------------------------------------------------
+// Client requests (tickets) + time tracking
+// ---------------------------------------------------------------------------
+
+enum RequestStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum RequestPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Request {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  status      RequestStatus @default(OPEN)
+  priority    RequestPriority @default(MEDIUM)
+
+  requestTypeValueId String?
+  requestTypeValue   DictionaryValue? @relation("RequestType", fields: [requestTypeValueId], references: [id])
+
+  createdAt DateTime  @default(now())
+  closedAt  DateTime?
+
+  timeEntries TimeEntry[]
+
+  @@index([organizationId])
+  @@index([projectId])
+}
+
+model TimeEntry {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  requestId String?
+  request   Request? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date        DateTime
+  hours       Decimal  @db.Decimal(6, 2)
+  description String?
+  createdAt   DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@index([requestId])
+}
