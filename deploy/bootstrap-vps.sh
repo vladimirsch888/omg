@@ -73,10 +73,14 @@ else
 fi
 db_exists revenue_saas_prod || sudo -u postgres psql -c "CREATE DATABASE revenue_saas_prod OWNER revenue_prod;"
 
-PGCONF=$(find /etc/postgresql -maxdepth 2 -name postgresql.conf | head -1)
-sed -i "s/^shared_buffers.*/shared_buffers = 128MB/" "$PGCONF"
-sed -i "s/^#work_mem.*/work_mem = 4MB/" "$PGCONF"
-systemctl restart postgresql
+PGCONF=$(find /etc/postgresql -name postgresql.conf | head -1)
+if [ -n "$PGCONF" ]; then
+  sed -i "s/^shared_buffers.*/shared_buffers = 128MB/" "$PGCONF"
+  sed -i "s/^#work_mem.*/work_mem = 4MB/" "$PGCONF"
+  systemctl restart postgresql
+else
+  echo "Не нашёл postgresql.conf — пропускаю тюнинг памяти (не критично)"
+fi
 
 echo "== [5/10] Ключ для чтения приватного репозитория GitHub =="
 sudo -u "$APP_USER" mkdir -p "/home/$APP_USER/.ssh"
