@@ -52,26 +52,9 @@ id -u "$APP_USER" &>/dev/null || useradd -m -s /bin/bash "$APP_USER"
 mkdir -p "$STAGING_DIR" "$PROD_DIR"
 chown "$APP_USER:$APP_USER" "$STAGING_DIR" "$PROD_DIR"
 
-echo "== [4/10] Базы данных =="
+echo "== [4/10] PostgreSQL: подготовка (создание/синхронизация делаем позже, вместе с .env) =="
 db_user_exists() { sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$1'" | grep -q 1; }
 db_exists() { sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$1'" | grep -q 1; }
-
-STAGING_DB_PASS=$(openssl rand -base64 24)
-PROD_DB_PASS=$(openssl rand -base64 24)
-
-if ! db_user_exists revenue_staging; then
-  sudo -u postgres psql -c "CREATE USER revenue_staging WITH PASSWORD '${STAGING_DB_PASS}' CREATEDB;"
-else
-  echo "Пользователь БД revenue_staging уже есть — пропускаю (пароль в .env не менялся)"
-fi
-db_exists revenue_saas_staging || sudo -u postgres psql -c "CREATE DATABASE revenue_saas_staging OWNER revenue_staging;"
-
-if ! db_user_exists revenue_prod; then
-  sudo -u postgres psql -c "CREATE USER revenue_prod WITH PASSWORD '${PROD_DB_PASS}' CREATEDB;"
-else
-  echo "Пользователь БД revenue_prod уже есть — пропускаю (пароль в .env не менялся)"
-fi
-db_exists revenue_saas_prod || sudo -u postgres psql -c "CREATE DATABASE revenue_saas_prod OWNER revenue_prod;"
 
 PGCONF=$(find /etc/postgresql -name postgresql.conf | head -1)
 if [ -n "$PGCONF" ]; then
@@ -127,23 +110,38 @@ clone_or_update "$PROD_DIR" main
 
 PUBLIC_IP=$(curl -fsS ifconfig.me || echo "СЕРВЕР_IP")
 
-echo "== [7/10] Файлы .env =="
-if [ ! -f "$STAGING_DIR/apps/api/.env" ]; then
-  sudo -u "$APP_USER" bash -c "cat > '$STAGING_DIR/apps/api/.env'" <<EOF
-DATABASE_URL="postgresql://revenue_staging:${STAGING_DB_PASS}@localhost:5432/revenue_saas_staging?schema=public"
+echo "== [7/10] Базы данных + .env (атомарно, чтобы пароль в .env всегда совпадал с реальным паролем в PostgreSQL) =="
+setup_db_and_env() {
+  local dir="$1" role="$2" dbname="$3" port="$4" cors="$5"
+  local env_file="${dir}/apps/api/.env"
+
+  if [ -f "$env_file" ]; then
+    echo "  ${env_file} уже существует — БД и пароль не трогаю"
+    db_exists "$dbname" || sudo -u postgres psql -c "CREATE DATABASE ${dbname} OWNER ${role};"
+    return
+  fi
+
+  # hex, а не base64 — пароль без /+= гарантированно не сломает строку подключения
+  local password
+  password=$(openssl rand -hex 24)
+
+  if db_user_exists "$role"; then
+    sudo -u postgres psql -c "ALTER USER ${role} WITH PASSWORD '${password}';"
+  else
+    sudo -u postgres psql -c "CREATE USER ${role} WITH PASSWORD '${password}' CREATEDB;"
+  fi
+  db_exists "$dbname" || sudo -u postgres psql -c "CREATE DATABASE ${dbname} OWNER ${role};"
+
+  sudo -u "$APP_USER" bash -c "cat > '${env_file}'" <<EOF
+DATABASE_URL="postgresql://${role}:${password}@localhost:5432/${dbname}?schema=public"
 JWT_SECRET="$(openssl rand -base64 48)"
-PORT=4001
-CORS_ORIGIN="http://${PUBLIC_IP}:8080"
+PORT=${port}
+CORS_ORIGIN="${cors}"
 EOF
-fi
-if [ ! -f "$PROD_DIR/apps/api/.env" ]; then
-  sudo -u "$APP_USER" bash -c "cat > '$PROD_DIR/apps/api/.env'" <<EOF
-DATABASE_URL="postgresql://revenue_prod:${PROD_DB_PASS}@localhost:5432/revenue_saas_prod?schema=public"
-JWT_SECRET="$(openssl rand -base64 48)"
-PORT=4000
-CORS_ORIGIN="http://${PUBLIC_IP}"
-EOF
-fi
+}
+
+setup_db_and_env "$STAGING_DIR" revenue_staging revenue_saas_staging 4001 "http://${PUBLIC_IP}:8080"
+setup_db_and_env "$PROD_DIR" revenue_prod revenue_saas_prod 4000 "http://${PUBLIC_IP}"
 
 echo "== [8/10] Установка зависимостей, сборка, миграции =="
 for DIR in "$STAGING_DIR" "$PROD_DIR"; do
