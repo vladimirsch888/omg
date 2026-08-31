@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+body {
+  @apply bg-slate-50 text-slate-900;
+}
+
+/* iOS Safari zooms the page when focusing a field with font-size < 16px.
+   Force 16px on all form controls regardless of the surrounding text size. */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+@supports (padding: max(0px)) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
