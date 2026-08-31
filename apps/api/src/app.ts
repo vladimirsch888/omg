@@ -18,7 +18,7 @@ export const app = new Hono<AppEnv>();
 
 app.use("*", cors({ origin: config.corsOrigin }));
 
-app.get("/health", (c) => c.json({ ok: true }));
+app.get("/health", (c) => c.json({ ok: true, version: 1 }));
 
 app.route("/api/auth", authRouter);
 app.route("/api/users", usersRouter);
