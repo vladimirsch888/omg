@@ -1,25 +1,28 @@
-import { NextFunction, Request, Response } from "express";
+import { createMiddleware } from "hono/factory";
+import type { AppEnv } from "../types/hono";
 import { verifyToken } from "../utils/jwt";
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const header = req.headers.authorization;
+export const requireAuth = createMiddleware<AppEnv>(async (c, next) => {
+  const header = c.req.header("Authorization");
   if (!header || !header.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Не авторизован" });
+    return c.json({ error: "Не авторизован" }, 401);
   }
   const token = header.slice("Bearer ".length);
   try {
-    req.auth = verifyToken(token);
-    next();
+    const payload = await verifyToken(token);
+    c.set("auth", payload);
+    await next();
   } catch {
-    return res.status(401).json({ error: "Недействительный токен" });
+    return c.json({ error: "Недействительный токен" }, 401);
   }
-}
+});
 
 export function requireRole(...roles: string[]) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.auth || !roles.includes(req.auth.role)) {
-      return res.status(403).json({ error: "Недостаточно прав" });
+  return createMiddleware<AppEnv>(async (c, next) => {
+    const auth = c.get("auth");
+    if (!auth || !roles.includes(auth.role)) {
+      return c.json({ error: "Недостаточно прав" }, 403);
     }
-    next();
-  };
+    await next();
+  });
 }

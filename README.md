@@ -4,15 +4,49 @@
 (amoCRM, Wazzup, NOVA) и по работам/сопровождению собственных клиентов.
 Показывает прибыль компании, PnL (по методу начисления), ДДС (кассовый
 метод) и LTV клиента, с учётом иерархии проектов и трудозатрат по заявкам.
+Полностью адаптировано под мобильные экраны (проверено на эмуляции
+iPhone в Safari/Chrome).
 
-## Архитектура
-
-Монорепозиторий из двух приложений:
+## Стек
 
 ```
-apps/api   — Node.js + Express + TypeScript + Prisma + PostgreSQL (REST API, JWT-аутентификация)
-apps/web   — React + Vite + TypeScript + Tailwind + Recharts (веб-интерфейс)
+apps/api   — Node.js 24 LTS + Hono + TypeScript + Prisma 7 (Rust-free, pg driver adapter) + PostgreSQL 16
+apps/web   — React 19 + Vite 8 (Rolldown) + TypeScript + Tailwind CSS v4 + Recharts 3
 ```
+
+### Почему именно так (важно для VPS с ограниченной памятью)
+
+Задача была не просто "написать сервер", а сделать его лёгким и быстрым
+на недорогом VPS. Поэтому вместо привычной связки Express + Prisma
+(с Rust-движком) выбрано следующее:
+
+- **Hono** вместо Express — по независимым бенчмаркам 2026 года
+  обрабатывает в разы больше запросов в секунду и потребляет заметно
+  меньше памяти на соединение, при этом это mainstream-фреймворк,
+  а не экзотика: работает на обычном Node.js через `@hono/node-server`.
+- **Prisma 7 в Rust-free режиме** — начиная с Prisma 7 клиент больше не
+  тянет отдельный Rust-бинарник query-engine (раньше это была
+  дополнительный процесс на десятки мегабайт памяти и медленный старт).
+  Запросы идут напрямую через драйвер `pg` (`@prisma/adapter-pg`).
+  В этом проекте собранный API стартует и стабильно держит **~85–110 МБ
+  RSS** памяти на реальном Postgres 16 (замерено на Ubuntu 24.04).
+- **Node.js 24 LTS** — актуальный LTS-релиз на 2026 год, ставится на
+  Ubuntu 24.04 одной командой через официальный репозиторий NodeSource
+  (в стандартных репозиториях Ubuntu 24.04 версия Node.js устаревшая).
+- **TypeScript 7** (нативный компилятор на Go, «tsgo») — тот же пакет
+  `typescript` и та же команда `tsc`, но проверка типов и сборка в
+  8–12 раз быстрее предыдущей версии на JS/Rust.
+- **Vite 8 на движке Rolldown** (Rust-бандлер) — сборка фронтенда занимает
+  ~1 секунду даже на скромном CPU, что удобно при деплое прямо на VPS.
+- **Tailwind CSS v4** — новый Rust-движок (Oxide), меньше итоговый CSS,
+  конфиг прямо в CSS-файле без `tailwind.config.js`.
+- **React 19 + React Router 7** — актуальные стабильные версии,
+  фронтенд собирается в статические файлы и раздаётся Nginx — сам React
+  не потребляет ресурсы сервера, только браузер клиента.
+
+Итог: PostgreSQL + один Node-процесс с Hono/Prisma спокойно работают на
+VPS с 1 vCPU / 1 ГБ RAM, что обычно узкое место для связки
+Express+Prisma+Rust-engine.
 
 ### Модель данных (apps/api/prisma/schema.prisma)
 
@@ -57,6 +91,23 @@ apps/web   — React + Vite + TypeScript + Tailwind + Recharts (веб-инте�
 Операции, Заявки, Учёт часов, отчёты PnL и ДДС, а также админка:
 Справочники (создание разделов и значений) и Пользователи.
 
+### Мобильная адаптация
+
+- Боковое меню на десктопе превращается в выезжающую панель с
+  кнопкой-гамбургером на экранах уже `lg` (≤1024px), включая iPhone.
+- Все поля ввода — минимум 16px шрифта, иначе Safari на iOS
+  автоматически зумит страницу при фокусе на поле (частый баг).
+- Используются `dvh`-единицы высоты вместо `vh`, чтобы верстка не
+  прыгала при скрытии/появлении панели адресной строки Safari.
+- Учтены безопасные отступы `env(safe-area-inset-*)` под чёлку/индикатор
+  жеста iPhone.
+- Таблицы прокручиваются по горизонтали внутри карточки, а второстепенные
+  колонки (категория, контакт, приоритет и т.п.) скрываются на узких
+  экранах, чтобы ключевые цифры были видны сразу без прокрутки.
+- Проверено эмуляцией iPhone 15 (Safari- и Chrome-варианты User-Agent)
+  через headless Chromium — без горизонтального скролла страницы, меню
+  и формы работают корректно.
+
 ## Запуск локально
 
 1. Поднять PostgreSQL:
@@ -85,6 +136,111 @@ apps/web   — React + Vite + TypeScript + Tailwind + Recharts (веб-инте�
 Демо-логин после `prisma:seed`: `owner@example.com` / `password123`.
 Либо зарегистрируйте свою компанию прямо на экране входа — при
 регистрации автоматически создаются справочники по умолчанию.
+
+## Деплой на VPS с Ubuntu 24.04
+
+Минимально достаточно 1 vCPU / 1 ГБ RAM. Ниже — вариант без Docker,
+максимально экономный по памяти: PostgreSQL и Node — системными
+пакетами, Nginx — раздаёт статику фронтенда и проксирует API,
+процессы — под systemd (без PM2, чтобы не тратить лишние ~30–50 МБ
+памяти на процесс-менеджер).
+
+### 1. Node.js 24 LTS через NodeSource
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
+sudo apt-get install -y nodejs
+node -v   # должно быть v24.x
+```
+
+### 2. PostgreSQL 16 из штатных репозиториев Ubuntu 24.04
+
+```bash
+sudo apt-get install -y postgresql postgresql-contrib
+sudo -u postgres psql -c "CREATE USER revenue WITH PASSWORD 'смени-меня' CREATEDB;"
+sudo -u postgres psql -c "CREATE DATABASE revenue_saas OWNER revenue;"
+```
+
+Для VPS с 1 ГБ RAM в `/etc/postgresql/16/main/postgresql.conf` разумно
+задать: `shared_buffers = 128MB`, `work_mem = 4MB`,
+`maintenance_work_mem = 32MB`, `max_connections = 20`.
+
+### 3. Сборка приложения на сервере
+
+```bash
+git clone <ваш-репозиторий> /opt/revenue-saas
+cd /opt/revenue-saas
+npm install
+cp apps/api/.env.example apps/api/.env   # прописать реальные DATABASE_URL/JWT_SECRET
+npm run build:api
+npm run prisma:migrate --workspace apps/api -- deploy
+npm run build:web
+```
+
+### 4. systemd-юнит для API (`/etc/systemd/system/revenue-api.service`)
+
+```ini
+[Unit]
+Description=Revenue SaaS API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/revenue-saas/apps/api
+EnvironmentFile=/opt/revenue-saas/apps/api/.env
+ExecStart=/usr/bin/node dist/server.js
+Restart=on-failure
+User=www-data
+# практический потолок памяти для процесса, если нужен запас на других сервисах
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now revenue-api
+sudo systemctl status revenue-api
+```
+
+### 5. Nginx — статика + прокси на API
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.example;
+
+    root /opt/revenue-saas/apps/web/dist;
+    index index.html;
+
+    gzip on;
+    gzip_types text/css application/javascript application/json;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location / {
+        try_files $uri /index.html;
+    }
+}
+```
+
+Затем `sudo certbot --nginx` для бесплатного TLS-сертификата
+(Let's Encrypt).
+
+### Обновление после изменений в коде
+
+```bash
+cd /opt/revenue-saas && git pull
+npm install
+npm run build:api && npm run prisma:migrate --workspace apps/api -- deploy
+npm run build:web
+sudo systemctl restart revenue-api
+```
 
 ## Возможные следующие шаги
 

@@ -1,8 +1,6 @@
-import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { prisma } from "../src/prisma";
 import { seedDefaultDictionaries } from "../src/modules/dictionaries/dictionaries.seed";
-
-const prisma = new PrismaClient();
 
 async function main() {
   const email = "owner@example.com";

@@ -5,4 +5,5 @@ build/
 *.log
 .DS_Store
 apps/api/prisma/dev.db
+apps/api/src/generated/
 *.tsbuildinfo

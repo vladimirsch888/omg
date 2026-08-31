@@ -62,7 +62,8 @@ export function DictionariesPage() {
 
       {types.map((type) => (
         <Card key={type.id} title={`${type.name} (${type.code})${type.isSystem ? " · системный" : ""}`}>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-4 px-4">
+        <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-slate-500">
                 <th className="py-2">Код</th>
@@ -84,6 +85,7 @@ export function DictionariesPage() {
               ))}
             </tbody>
           </table>
+        </div>
           <div className="mt-3 flex gap-2">
             <input
               className="rounded-md border border-slate-300 px-3 py-2 text-sm"

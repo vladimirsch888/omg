@@ -60,6 +60,7 @@ export function UsersPage() {
       )}
 
       <Card>
+        <div className="overflow-x-auto -mx-4 px-4">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-slate-500">
@@ -84,6 +85,7 @@ export function UsersPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   );

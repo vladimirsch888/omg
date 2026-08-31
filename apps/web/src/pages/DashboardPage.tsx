@@ -42,7 +42,7 @@ export function DashboardPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="period" fontSize={12} />
               <YAxis fontSize={12} />
-              <Tooltip formatter={(v: number) => formatMoney(v)} />
+              <Tooltip formatter={(v) => formatMoney(Number(v ?? 0))} />
               <Line type="monotone" dataKey="Прибыль" stroke="#0f172a" strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="Приток" stroke="#16a34a" strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="Отток" stroke="#dc2626" strokeWidth={2} dot={false} />
@@ -52,6 +52,7 @@ export function DashboardPage() {
       </Card>
 
       <Card title="Топ клиентов по LTV">
+        <div className="overflow-x-auto -mx-4 px-4">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-slate-500">
@@ -72,6 +73,7 @@ export function DashboardPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   );

@@ -12,5 +12,8 @@
     "build:web": "npm run build --workspace apps/web",
     "prisma:migrate": "npm run prisma:migrate --workspace apps/api",
     "prisma:seed": "npm run prisma:seed --workspace apps/api"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.2"
   }
 }

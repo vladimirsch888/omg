@@ -34,7 +34,7 @@ export function PnLPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="period" fontSize={12} />
               <YAxis fontSize={12} />
-              <Tooltip formatter={(v: number) => formatMoney(v)} />
+              <Tooltip formatter={(v) => formatMoney(Number(v ?? 0))} />
               <Bar dataKey="income" name="Доход" fill="#16a34a" />
               <Bar dataKey="expense" name="Расход" fill="#dc2626" />
               <Bar dataKey="profit" name="Прибыль" fill="#0f172a" />
@@ -44,6 +44,7 @@ export function PnLPage() {
       </Card>
 
       <Card title="По категориям">
+        <div className="overflow-x-auto -mx-4 px-4">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-slate-500">
@@ -64,6 +65,7 @@ export function PnLPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   );

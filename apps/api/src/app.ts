@@ -1,6 +1,8 @@
-import express from "express";
-import cors from "cors";
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { ZodError } from "zod";
 import { config } from "./config";
+import { AppError } from "./utils/errors";
 import { authRouter } from "./modules/auth/auth.routes";
 import { usersRouter } from "./modules/users/users.routes";
 import { clientsRouter } from "./modules/clients/clients.routes";
@@ -10,23 +12,32 @@ import { operationsRouter } from "./modules/operations/operations.routes";
 import { requestsRouter } from "./modules/requests/requests.routes";
 import { timeEntriesRouter } from "./modules/timeEntries/timeEntries.routes";
 import { reportsRouter } from "./modules/reports/reports.routes";
-import { errorMiddleware } from "./middleware/error.middleware";
+import type { AppEnv } from "./types/hono";
 
-export const app = express();
+export const app = new Hono<AppEnv>();
 
-app.use(cors({ origin: config.corsOrigin }));
-app.use(express.json());
+app.use("*", cors({ origin: config.corsOrigin }));
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/health", (c) => c.json({ ok: true }));
 
-app.use("/api/auth", authRouter);
-app.use("/api/users", usersRouter);
-app.use("/api/clients", clientsRouter);
-app.use("/api/projects", projectsRouter);
-app.use("/api/dictionaries", dictionariesRouter);
-app.use("/api/operations", operationsRouter);
-app.use("/api/requests", requestsRouter);
-app.use("/api/time-entries", timeEntriesRouter);
-app.use("/api/reports", reportsRouter);
+app.route("/api/auth", authRouter);
+app.route("/api/users", usersRouter);
+app.route("/api/clients", clientsRouter);
+app.route("/api/projects", projectsRouter);
+app.route("/api/dictionaries", dictionariesRouter);
+app.route("/api/operations", operationsRouter);
+app.route("/api/requests", requestsRouter);
+app.route("/api/time-entries", timeEntriesRouter);
+app.route("/api/reports", reportsRouter);
 
-app.use(errorMiddleware);
+app.onError((err, c) => {
+  if (err instanceof AppError) {
+    return c.json({ error: err.message }, err.status as any);
+  }
+  if (err instanceof ZodError) {
+    const message = err.issues[0]?.message ?? "Некорректные данные";
+    return c.json({ error: message }, 400);
+  }
+  console.error(err);
+  return c.json({ error: "Внутренняя ошибка сервера" }, 500);
+});

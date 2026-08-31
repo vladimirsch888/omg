@@ -65,14 +65,15 @@ export function ProjectDetailPage() {
       )}
 
       <Card title="Последние операции">
+        <div className="overflow-x-auto -mx-4 px-4">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-slate-500">
               <th className="py-2">Дата</th>
               <th className="py-2">Тип</th>
-              <th className="py-2">Категория</th>
+              <th className="hidden py-2 sm:table-cell">Категория</th>
               <th className="py-2">Сумма</th>
-              <th className="py-2">Описание</th>
+              <th className="hidden py-2 md:table-cell">Описание</th>
             </tr>
           </thead>
           <tbody>
@@ -80,11 +81,11 @@ export function ProjectDetailPage() {
               <tr key={o.id} className="border-b border-slate-100">
                 <td className="py-2">{formatDate(o.accrualDate)}</td>
                 <td className="py-2">{o.type === "INCOME" ? "Доход" : "Расход"}</td>
-                <td className="py-2">{o.categoryValue?.name ?? "—"}</td>
+                <td className="hidden py-2 sm:table-cell">{o.categoryValue?.name ?? "—"}</td>
                 <td className={`py-2 font-medium ${o.type === "INCOME" ? "text-green-600" : "text-red-600"}`}>
                   {o.type === "INCOME" ? "+" : "-"}{formatMoney(o.amount)}
                 </td>
-                <td className="py-2 text-slate-500">{o.description ?? "—"}</td>
+                <td className="hidden py-2 text-slate-500 md:table-cell">{o.description ?? "—"}</td>
               </tr>
             ))}
             {operations.length === 0 && (
@@ -92,15 +93,17 @@ export function ProjectDetailPage() {
             )}
           </tbody>
         </table>
+        </div>
       </Card>
 
       <Card title="Заявки клиента по проекту">
+        <div className="overflow-x-auto -mx-4 px-4">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-slate-500">
               <th className="py-2">Заявка</th>
               <th className="py-2">Статус</th>
-              <th className="py-2">Приоритет</th>
+              <th className="hidden py-2 sm:table-cell">Приоритет</th>
               <th className="py-2">Часы</th>
             </tr>
           </thead>
@@ -109,7 +112,7 @@ export function ProjectDetailPage() {
               <tr key={r.id} className="border-b border-slate-100">
                 <td className="py-2">{r.title}</td>
                 <td className="py-2">{r.status}</td>
-                <td className="py-2">{r.priority}</td>
+                <td className="hidden py-2 sm:table-cell">{r.priority}</td>
                 <td className="py-2">{r.totalHours ?? 0} ч</td>
               </tr>
             ))}
@@ -118,6 +121,7 @@ export function ProjectDetailPage() {
             )}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   );

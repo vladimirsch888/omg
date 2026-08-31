@@ -1,6 +1,7 @@
+import { serve } from "@hono/node-server";
 import { app } from "./app";
 import { config } from "./config";
 
-app.listen(config.port, () => {
-  console.log(`API listening on http://localhost:${config.port}`);
+serve({ fetch: app.fetch, port: config.port }, (info) => {
+  console.log(`API listening on http://localhost:${info.port}`);
 });

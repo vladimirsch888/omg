@@ -65,12 +65,13 @@ export function RequestsPage() {
       )}
 
       <Card>
+        <div className="overflow-x-auto -mx-4 px-4">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-slate-500">
               <th className="py-2">Заявка</th>
-              <th className="py-2">Проект</th>
-              <th className="py-2">Приоритет</th>
+              <th className="hidden py-2 sm:table-cell">Проект</th>
+              <th className="hidden py-2 md:table-cell">Приоритет</th>
               <th className="py-2">Часы</th>
               <th className="py-2">Статус</th>
             </tr>
@@ -79,8 +80,8 @@ export function RequestsPage() {
             {requests.map((r) => (
               <tr key={r.id} className="border-b border-slate-100">
                 <td className="py-2">{r.title}</td>
-                <td className="py-2">{r.project?.id ? projects.find((p) => p.id === r.project?.id)?.name : "—"}</td>
-                <td className="py-2">{r.priority}</td>
+                <td className="hidden py-2 sm:table-cell">{r.project?.id ? projects.find((p) => p.id === r.project?.id)?.name : "—"}</td>
+                <td className="hidden py-2 md:table-cell">{r.priority}</td>
                 <td className="py-2">{r.totalHours ?? 0} ч</td>
                 <td className="py-2">
                   <select
@@ -98,6 +99,7 @@ export function RequestsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   );

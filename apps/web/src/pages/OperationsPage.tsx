@@ -98,12 +98,13 @@ export function OperationsPage() {
       )}
 
       <Card>
+        <div className="overflow-x-auto -mx-4 px-4">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-slate-500">
               <th className="py-2">Дата</th>
-              <th className="py-2">Проект</th>
-              <th className="py-2">Категория</th>
+              <th className="hidden py-2 sm:table-cell">Проект</th>
+              <th className="hidden py-2 md:table-cell">Категория</th>
               <th className="py-2">Тип</th>
               <th className="py-2">Сумма</th>
             </tr>
@@ -112,8 +113,8 @@ export function OperationsPage() {
             {operations.map((o) => (
               <tr key={o.id} className="border-b border-slate-100">
                 <td className="py-2">{formatDate(o.accrualDate)}</td>
-                <td className="py-2">{o.project?.name ?? "Компания"}</td>
-                <td className="py-2">{o.categoryValue?.name ?? "—"}</td>
+                <td className="hidden py-2 sm:table-cell">{o.project?.name ?? "Компания"}</td>
+                <td className="hidden py-2 md:table-cell">{o.categoryValue?.name ?? "—"}</td>
                 <td className="py-2">{o.type === "INCOME" ? "Доход" : "Расход"}</td>
                 <td className={`py-2 font-medium ${o.type === "INCOME" ? "text-green-600" : "text-red-600"}`}>
                   {o.type === "INCOME" ? "+" : "-"}{formatMoney(o.amount)}
@@ -122,6 +123,7 @@ export function OperationsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   );

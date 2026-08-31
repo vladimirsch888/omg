@@ -1,51 +1,48 @@
-import { Router } from "express";
+import { Hono } from "hono";
 import { z } from "zod";
 import { prisma } from "../../prisma";
 import { requireAuth } from "../../middleware/auth.middleware";
-import { asyncHandler, HttpError } from "../../utils/asyncHandler";
+import { AppError } from "../../utils/errors";
 import { getProjectAndDescendantIds } from "./projects.service";
+import type { AppEnv } from "../../types/hono";
 
-export const projectsRouter = Router();
+export const projectsRouter = new Hono<AppEnv>();
 projectsRouter.use(requireAuth);
 
 // Full project tree (top-level projects with their subprojects nested).
-projectsRouter.get(
-  "/",
-  asyncHandler(async (req, res) => {
-    const { clientId } = req.query;
-    const projects = await prisma.project.findMany({
-      where: {
-        organizationId: req.auth!.organizationId,
-        parentId: null,
-        ...(clientId ? { clientId: String(clientId) } : {}),
-      },
-      include: {
-        client: { select: { id: true, name: true } },
-        typeValue: true,
-        children: { include: { typeValue: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-    res.json(projects);
-  })
-);
+projectsRouter.get("/", async (c) => {
+  const auth = c.get("auth");
+  const clientId = c.req.query("clientId");
+  const projects = await prisma.project.findMany({
+    where: {
+      organizationId: auth.organizationId,
+      parentId: null,
+      ...(clientId ? { clientId } : {}),
+    },
+    include: {
+      client: { select: { id: true, name: true } },
+      typeValue: true,
+      children: { include: { typeValue: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  return c.json(projects);
+});
 
-projectsRouter.get(
-  "/:id",
-  asyncHandler(async (req, res) => {
-    const project = await prisma.project.findFirst({
-      where: { id: req.params.id, organizationId: req.auth!.organizationId },
-      include: {
-        client: true,
-        typeValue: true,
-        parent: true,
-        children: { include: { typeValue: true } },
-      },
-    });
-    if (!project) throw new HttpError(404, "Проект не найден");
-    res.json(project);
-  })
-);
+projectsRouter.get("/:id", async (c) => {
+  const auth = c.get("auth");
+  const project = await prisma.project.findFirst({
+    where: { id: c.req.param("id"), organizationId: auth.organizationId },
+    include: {
+      client: true,
+      typeValue: true,
+      parent: true,
+      children: { include: { typeValue: true } },
+    },
+  });
+  if (!project) throw new AppError(404, "Проект не найден");
+  return c.json(project);
+});
 
 const projectSchema = z.object({
   clientId: z.string().uuid(),
@@ -60,113 +57,105 @@ const projectSchema = z.object({
   budgetHours: z.number().nonnegative().optional().nullable(),
 });
 
-projectsRouter.post(
-  "/",
-  asyncHandler(async (req, res) => {
-    const body = projectSchema.parse(req.body);
-    const organizationId = req.auth!.organizationId;
+projectsRouter.post("/", async (c) => {
+  const auth = c.get("auth");
+  const body = projectSchema.parse(await c.req.json());
+  const organizationId = auth.organizationId;
 
-    const client = await prisma.client.findFirst({ where: { id: body.clientId, organizationId } });
-    if (!client) throw new HttpError(404, "Клиент не найден");
+  const client = await prisma.client.findFirst({ where: { id: body.clientId, organizationId } });
+  if (!client) throw new AppError(404, "Клиент не найден");
 
-    if (body.parentId) {
-      const parent = await prisma.project.findFirst({
-        where: { id: body.parentId, organizationId },
-      });
-      if (!parent) throw new HttpError(404, "Родительский проект не найден");
-      if (parent.parentId) {
-        throw new HttpError(
-          400,
-          "Максимальная вложенность: клиент -> проект -> подпроект. У подпроекта не может быть своих подпроектов"
-        );
-      }
-      if (parent.clientId !== body.clientId) {
-        throw new HttpError(400, "Подпроект должен принадлежать тому же клиенту, что и родитель");
-      }
+  if (body.parentId) {
+    const parent = await prisma.project.findFirst({
+      where: { id: body.parentId, organizationId },
+    });
+    if (!parent) throw new AppError(404, "Родительский проект не найден");
+    if (parent.parentId) {
+      throw new AppError(
+        400,
+        "Максимальная вложенность: клиент -> проект -> подпроект. У подпроекта не может быть своих подпроектов"
+      );
     }
+    if (parent.clientId !== body.clientId) {
+      throw new AppError(400, "Подпроект должен принадлежать тому же клиенту, что и родитель");
+    }
+  }
 
-    const project = await prisma.project.create({
-      data: {
-        organizationId,
-        clientId: body.clientId,
-        parentId: body.parentId ?? null,
-        name: body.name,
-        description: body.description,
-        typeValueId: body.typeValueId ?? null,
-        status: body.status ?? "ACTIVE",
-        startDate: body.startDate ?? null,
-        endDate: body.endDate ?? null,
-        hourlyRate: body.hourlyRate ?? null,
-        budgetHours: body.budgetHours ?? null,
-      },
-    });
-    res.status(201).json(project);
-  })
-);
+  const project = await prisma.project.create({
+    data: {
+      organizationId,
+      clientId: body.clientId,
+      parentId: body.parentId ?? null,
+      name: body.name,
+      description: body.description,
+      typeValueId: body.typeValueId ?? null,
+      status: body.status ?? "ACTIVE",
+      startDate: body.startDate ?? null,
+      endDate: body.endDate ?? null,
+      hourlyRate: body.hourlyRate ?? null,
+      budgetHours: body.budgetHours ?? null,
+    },
+  });
+  return c.json(project, 201);
+});
 
-projectsRouter.patch(
-  "/:id",
-  asyncHandler(async (req, res) => {
-    const body = projectSchema.partial().parse(req.body);
-    const project = await prisma.project.findFirst({
-      where: { id: req.params.id, organizationId: req.auth!.organizationId },
-    });
-    if (!project) throw new HttpError(404, "Проект не найден");
-    const updated = await prisma.project.update({
-      where: { id: project.id },
-      data: body,
-    });
-    res.json(updated);
-  })
-);
+projectsRouter.patch("/:id", async (c) => {
+  const auth = c.get("auth");
+  const body = projectSchema.partial().parse(await c.req.json());
+  const project = await prisma.project.findFirst({
+    where: { id: c.req.param("id"), organizationId: auth.organizationId },
+  });
+  if (!project) throw new AppError(404, "Проект не найден");
+  const updated = await prisma.project.update({
+    where: { id: project.id },
+    data: body,
+  });
+  return c.json(updated);
+});
 
-projectsRouter.delete(
-  "/:id",
-  asyncHandler(async (req, res) => {
-    const project = await prisma.project.findFirst({
-      where: { id: req.params.id, organizationId: req.auth!.organizationId },
-    });
-    if (!project) throw new HttpError(404, "Проект не найден");
-    await prisma.project.delete({ where: { id: project.id } });
-    res.status(204).end();
-  })
-);
+projectsRouter.delete("/:id", async (c) => {
+  const auth = c.get("auth");
+  const project = await prisma.project.findFirst({
+    where: { id: c.req.param("id"), organizationId: auth.organizationId },
+  });
+  if (!project) throw new AppError(404, "Проект не найден");
+  await prisma.project.delete({ where: { id: project.id } });
+  return c.body(null, 204);
+});
 
 // Aggregated financials & hours for a project, rolled up from its subprojects.
-projectsRouter.get(
-  "/:id/summary",
-  asyncHandler(async (req, res) => {
-    const organizationId = req.auth!.organizationId;
-    const project = await prisma.project.findFirst({ where: { id: req.params.id, organizationId } });
-    if (!project) throw new HttpError(404, "Проект не найден");
+projectsRouter.get("/:id/summary", async (c) => {
+  const auth = c.get("auth");
+  const organizationId = auth.organizationId;
+  const project = await prisma.project.findFirst({ where: { id: c.req.param("id"), organizationId } });
+  if (!project) throw new AppError(404, "Проект не найден");
 
-    const projectIds = await getProjectAndDescendantIds(organizationId, project.id);
+  const projectIds = await getProjectAndDescendantIds(organizationId, project.id);
 
-    const [incomeAgg, expenseAgg, hoursAgg] = await Promise.all([
-      prisma.operation.aggregate({
-        where: { organizationId, projectId: { in: projectIds }, type: "INCOME" },
-        _sum: { amount: true },
-      }),
-      prisma.operation.aggregate({
-        where: { organizationId, projectId: { in: projectIds }, type: "EXPENSE" },
-        _sum: { amount: true },
-      }),
-      prisma.timeEntry.aggregate({
-        where: { organizationId, projectId: { in: projectIds } },
-        _sum: { hours: true },
-      }),
-    ]);
+  const [incomeAgg, expenseAgg, hoursAgg] = await Promise.all([
+    prisma.operation.aggregate({
+      where: { organizationId, projectId: { in: projectIds }, type: "INCOME" },
+      _sum: { amount: true },
+    }),
+    prisma.operation.aggregate({
+      where: { organizationId, projectId: { in: projectIds }, type: "EXPENSE" },
+      _sum: { amount: true },
+    }),
+    prisma.timeEntry.aggregate({
+      where: { organizationId, projectId: { in: projectIds } },
+      _sum: { hours: true },
+    }),
+  ]);
 
-    const income = Number(incomeAgg._sum.amount ?? 0);
-    const expense = Number(expenseAgg._sum.amount ?? 0);
+  const income = Number(incomeAgg._sum.amount ?? 0);
+  const expense = Number(expenseAgg._sum.amount ?? 0);
 
-    res.json({
-      projectId: project.id,
-      includedProjectIds: projectIds,
-      income,
-      expense,
-      profit: income - expense,
-      hours: Number(hoursAgg._sum.hours ?? 0),
-    });
-  })
-);
+  return c.json({
+    projectId: project.id,
+    includedProjectIds: projectIds,
+    income,
+    expense,
+    profit: income - expense,
+    hours: Number(hoursAgg._sum.hours ?? 0),
+  });
+});

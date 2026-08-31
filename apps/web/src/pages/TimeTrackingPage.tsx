@@ -78,13 +78,14 @@ export function TimeTrackingPage() {
       )}
 
       <Card>
+        <div className="overflow-x-auto -mx-4 px-4">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-slate-500">
               <th className="py-2">Дата</th>
               <th className="py-2">Проект</th>
-              <th className="py-2">Заявка</th>
-              <th className="py-2">Сотрудник</th>
+              <th className="hidden py-2 sm:table-cell">Заявка</th>
+              <th className="hidden py-2 md:table-cell">Сотрудник</th>
               <th className="py-2">Часы</th>
             </tr>
           </thead>
@@ -93,13 +94,14 @@ export function TimeTrackingPage() {
               <tr key={e.id} className="border-b border-slate-100">
                 <td className="py-2">{formatDate(e.date)}</td>
                 <td className="py-2">{e.project?.name}</td>
-                <td className="py-2">{e.request?.title ?? "—"}</td>
-                <td className="py-2">{e.user?.name}</td>
+                <td className="hidden py-2 sm:table-cell">{e.request?.title ?? "—"}</td>
+                <td className="hidden py-2 md:table-cell">{e.user?.name}</td>
                 <td className="py-2 font-medium">{e.hours} ч</td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   );

@@ -34,7 +34,7 @@ export function DDSPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="period" fontSize={12} />
               <YAxis fontSize={12} />
-              <Tooltip formatter={(v: number) => formatMoney(v)} />
+              <Tooltip formatter={(v) => formatMoney(Number(v ?? 0))} />
               <Area type="monotone" dataKey="cumulativeBalance" name="Остаток" stroke="#0f172a" fill="#0f172a22" />
             </AreaChart>
           </ResponsiveContainer>
@@ -42,6 +42,7 @@ export function DDSPage() {
       </Card>
 
       <Card title="По месяцам">
+        <div className="overflow-x-auto -mx-4 px-4">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-slate-500">
@@ -64,6 +65,7 @@ export function DDSPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   );

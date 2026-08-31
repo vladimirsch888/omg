@@ -56,12 +56,13 @@ export function ClientsPage() {
       )}
 
       <Card>
+        <div className="overflow-x-auto -mx-4 px-4">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-slate-500">
               <th className="py-2">Название</th>
-              <th className="py-2">ИНН</th>
-              <th className="py-2">Контакт</th>
+              <th className="hidden py-2 sm:table-cell">ИНН</th>
+              <th className="hidden py-2 md:table-cell">Контакт</th>
               <th className="py-2">Статус</th>
               <th className="py-2">Проектов</th>
             </tr>
@@ -74,14 +75,15 @@ export function ClientsPage() {
                     {c.name}
                   </Link>
                 </td>
-                <td className="py-2">{c.inn ?? "—"}</td>
-                <td className="py-2">{c.contactPerson ?? "—"}</td>
+                <td className="hidden py-2 sm:table-cell">{c.inn ?? "—"}</td>
+                <td className="hidden py-2 md:table-cell">{c.contactPerson ?? "—"}</td>
                 <td className="py-2">{c.status}</td>
                 <td className="py-2">{c.projectsCount ?? 0}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   );
