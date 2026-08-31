@@ -137,110 +137,57 @@ Express+Prisma+Rust-engine.
 Либо зарегистрируйте свою компанию прямо на экране входа — при
 регистрации автоматически создаются справочники по умолчанию.
 
-## Деплой на VPS с Ubuntu 24.04
+## Деплой: staging + production на одном VPS (Ubuntu 24.04)
 
-Минимально достаточно 1 vCPU / 1 ГБ RAM. Ниже — вариант без Docker,
-максимально экономный по памяти: PostgreSQL и Node — системными
-пакетами, Nginx — раздаёт статику фронтенда и проксирует API,
-процессы — под systemd (без PM2, чтобы не тратить лишние ~30–50 МБ
-памяти на процесс-менеджер).
+Обе среды живут на одном сервере, каждая — со своей БД, своим `.env`,
+своим systemd-сервисом и своим портом:
 
-### 1. Node.js 24 LTS через NodeSource
+| Среда      | Ветка     | Директория                    | API порт | Сайт                     |
+|------------|-----------|--------------------------------|----------|---------------------------|
+| staging    | `staging` | `/opt/revenue-saas-staging`    | 4001     | `http://IP:8080/`         |
+| production | `main`    | `/opt/revenue-saas-prod`       | 4000     | `http://IP/`              |
 
-```bash
-curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
-sudo apt-get install -y nodejs
-node -v   # должно быть v24.x
-```
+Деплой полностью автоматический через GitHub Actions
+(`.github/workflows/deploy-staging.yml`,
+`.github/workflows/deploy-production.yml`): пуш в `staging` разворачивает
+staging, пуш в `main` — production. Ручных команд на сервере после
+первичной настройки быть не должно.
 
-### 2. PostgreSQL 16 из штатных репозиториев Ubuntu 24.04
+### Единоразовая настройка сервера
 
-```bash
-sudo apt-get install -y postgresql postgresql-contrib
-sudo -u postgres psql -c "CREATE USER revenue WITH PASSWORD 'смени-меня' CREATEDB;"
-sudo -u postgres psql -c "CREATE DATABASE revenue_saas OWNER revenue;"
-```
+1. Запустить скрипт `deploy/bootstrap-vps.sh` (см. ниже) на свежем VPS от
+   root — он поднимает Node 24, PostgreSQL, Nginx, создаёт пользователя
+   `deploy`, обе БД, оба systemd-сервиса, оба конфига Nginx, ключ для
+   чтения приватного репозитория (скрипт остановится и попросит добавить
+   его в GitHub → Settings → Deploy keys) и ключ для доступа GitHub
+   Actions к серверу.
+2. В конце скрипт выведет три значения — добавить их в GitHub:
+   `Settings → Secrets and variables → Actions → New repository secret`:
+   `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`.
 
-Для VPS с 1 ГБ RAM в `/etc/postgresql/16/main/postgresql.conf` разумно
+После этого весь дальнейший процесс — просто `git push` в `staging` или
+`main`: GitHub Actions сам зайдёт на сервер, подтянет код, соберёт,
+прогонит миграции и перезапустит нужный сервис.
+
+Для 1 ГБ RAM в `/etc/postgresql/16/main/postgresql.conf` разумно
 задать: `shared_buffers = 128MB`, `work_mem = 4MB`,
-`maintenance_work_mem = 32MB`, `max_connections = 20`.
+`maintenance_work_mem = 32MB` (входит в скрипт `bootstrap-vps.sh`).
 
-### 3. Сборка приложения на сервере
+### Продвижение изменений staging → production
 
-```bash
-git clone <ваш-репозиторий> /opt/revenue-saas
-cd /opt/revenue-saas
-npm install
-cp apps/api/.env.example apps/api/.env   # прописать реальные DATABASE_URL/JWT_SECRET
-npm run build:api
-npm run prisma:migrate --workspace apps/api -- deploy
-npm run build:web
-```
-
-### 4. systemd-юнит для API (`/etc/systemd/system/revenue-api.service`)
-
-```ini
-[Unit]
-Description=Revenue SaaS API
-After=network.target postgresql.service
-
-[Service]
-Type=simple
-WorkingDirectory=/opt/revenue-saas/apps/api
-EnvironmentFile=/opt/revenue-saas/apps/api/.env
-ExecStart=/usr/bin/node dist/server.js
-Restart=on-failure
-User=www-data
-# практический потолок памяти для процесса, если нужен запас на других сервисах
-MemoryMax=256M
-
-[Install]
-WantedBy=multi-user.target
-```
+Когда изменения проверены на staging, слить `staging` в `main` и
+запушить — production обновится сам:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now revenue-api
-sudo systemctl status revenue-api
+git checkout main && git merge staging && git push origin main
 ```
 
-### 5. Nginx — статика + прокси на API
+### Ручной запуск деплоя (без пуша)
 
-```nginx
-server {
-    listen 80;
-    server_name your-domain.example;
-
-    root /opt/revenue-saas/apps/web/dist;
-    index index.html;
-
-    gzip on;
-    gzip_types text/css application/javascript application/json;
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-
-    location / {
-        try_files $uri /index.html;
-    }
-}
-```
-
-Затем `sudo certbot --nginx` для бесплатного TLS-сертификата
-(Let's Encrypt).
-
-### Обновление после изменений в коде
-
-```bash
-cd /opt/revenue-saas && git pull
-npm install
-npm run build:api && npm run prisma:migrate --workspace apps/api -- deploy
-npm run build:web
-sudo systemctl restart revenue-api
-```
+Во вкладке репозитория **Actions** можно нажать "Run workflow" на
+`Deploy to staging` или `Deploy to production` — это тот же процесс,
+что и автоматический пуш (полезно, если нужно передеплоить без новых
+коммитов, например после смены `.env` на сервере).
 
 ## Возможные следующие шаги
 
