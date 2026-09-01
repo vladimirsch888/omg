@@ -4,17 +4,21 @@ import { DictionaryType, LicenseProduct } from "../api/types";
 import { Card } from "../components/Card";
 import { formatMoney } from "../utils/format";
 
+const emptyForm = {
+  name: "",
+  categoryValueId: "",
+  defaultPrice: "",
+  defaultDurationMonths: "1",
+  defaultVendorSharePercent: "50",
+  defaultTaxable: true,
+};
+
 export function ProductsPage() {
   const [products, setProducts] = useState<LicenseProduct[]>([]);
   const [categories, setCategories] = useState<DictionaryType | null>(null);
   const [showForm, setShowForm] = useState(false);
-
-  const [name, setName] = useState("");
-  const [categoryValueId, setCategoryValueId] = useState("");
-  const [defaultPrice, setDefaultPrice] = useState("");
-  const [defaultDurationMonths, setDefaultDurationMonths] = useState("1");
-  const [defaultVendorSharePercent, setDefaultVendorSharePercent] = useState("50");
-  const [defaultTaxable, setDefaultTaxable] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(emptyForm);
 
   function load() {
     api.get<LicenseProduct[]>("/license-products", { params: { includeInactive: true } }).then((res) => setProducts(res.data));
@@ -27,19 +31,46 @@ export function ProductsPage() {
     });
   }, []);
 
+  function startCreate() {
+    setForm(emptyForm);
+    setEditingId(null);
+    setShowForm(true);
+  }
+
+  function startEdit(p: LicenseProduct) {
+    setForm({
+      name: p.name,
+      categoryValueId: p.categoryValueId ?? "",
+      defaultPrice: String(p.defaultPrice),
+      defaultDurationMonths: String(p.defaultDurationMonths),
+      defaultVendorSharePercent: String(p.defaultVendorSharePercent),
+      defaultTaxable: p.defaultTaxable,
+    });
+    setEditingId(p.id);
+    setShowForm(true);
+  }
+
+  function cancel() {
+    setShowForm(false);
+    setEditingId(null);
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    await api.post("/license-products", {
-      name,
-      categoryValueId: categoryValueId || undefined,
-      defaultPrice: Number(defaultPrice),
-      defaultDurationMonths: Number(defaultDurationMonths),
-      defaultVendorSharePercent: Number(defaultVendorSharePercent),
-      defaultTaxable,
-    });
-    setName("");
-    setDefaultPrice("");
-    setShowForm(false);
+    const payload = {
+      name: form.name,
+      categoryValueId: form.categoryValueId || undefined,
+      defaultPrice: Number(form.defaultPrice),
+      defaultDurationMonths: Number(form.defaultDurationMonths),
+      defaultVendorSharePercent: Number(form.defaultVendorSharePercent),
+      defaultTaxable: form.defaultTaxable,
+    };
+    if (editingId) {
+      await api.patch(`/license-products/${editingId}`, payload);
+    } else {
+      await api.post("/license-products", payload);
+    }
+    cancel();
     load();
   }
 
@@ -52,7 +83,7 @@ export function ProductsPage() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Продукты (лицензии)</h1>
-        <button onClick={() => setShowForm(!showForm)} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
+        <button onClick={() => (showForm ? cancel() : startCreate())} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
           {showForm ? "Отмена" : "+ Новый продукт"}
         </button>
       </div>
@@ -66,28 +97,28 @@ export function ProductsPage() {
       {showForm && (
         <Card>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2" placeholder="Название (например amoCRM Professional, 10 мест)" value={name} onChange={(e) => setName(e.target.value)} required />
-            <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={categoryValueId} onChange={(e) => setCategoryValueId(e.target.value)}>
+            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2" placeholder="Название (например amoCRM Professional, 10 мест)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+            <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.categoryValueId} onChange={(e) => setForm({ ...form, categoryValueId: e.target.value })}>
               <option value="">Категория операций…</option>
               {categories?.values.map((v) => (
                 <option key={v.id} value={v.id}>{v.name}</option>
               ))}
             </select>
-            <input type="number" step="0.01" className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Цена по умолчанию" value={defaultPrice} onChange={(e) => setDefaultPrice(e.target.value)} required />
+            <input type="number" step="0.01" className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Цена по умолчанию" value={form.defaultPrice} onChange={(e) => setForm({ ...form, defaultPrice: e.target.value })} required />
             <div className="flex flex-col gap-1">
               <label className="text-xs text-slate-400">Срок подписки, мес.</label>
-              <input type="number" min="1" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={defaultDurationMonths} onChange={(e) => setDefaultDurationMonths(e.target.value)} required />
+              <input type="number" min="1" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.defaultDurationMonths} onChange={(e) => setForm({ ...form, defaultDurationMonths: e.target.value })} required />
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-xs text-slate-400">Доля вендора, %</label>
-              <input type="number" min="0" max="100" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={defaultVendorSharePercent} onChange={(e) => setDefaultVendorSharePercent(e.target.value)} required />
+              <input type="number" min="0" max="100" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.defaultVendorSharePercent} onChange={(e) => setForm({ ...form, defaultVendorSharePercent: e.target.value })} required />
             </div>
             <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={defaultTaxable} onChange={(e) => setDefaultTaxable(e.target.checked)} />
+              <input type="checkbox" checked={form.defaultTaxable} onChange={(e) => setForm({ ...form, defaultTaxable: e.target.checked })} />
               Облагается налогом (не оплата на карту)
             </label>
             <button type="submit" className="w-fit rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 sm:col-span-3">
-              Сохранить
+              {editingId ? "Сохранить изменения" : "Сохранить"}
             </button>
           </form>
         </Card>
@@ -104,6 +135,7 @@ export function ProductsPage() {
                 <th className="hidden py-2 md:table-cell">Срок</th>
                 <th className="hidden py-2 md:table-cell">Вендору, %</th>
                 <th className="py-2">Активен</th>
+                <th className="py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -119,10 +151,15 @@ export function ProductsPage() {
                       {p.isActive ? "Да" : "Нет"}
                     </button>
                   </td>
+                  <td className="py-2">
+                    <button onClick={() => startEdit(p)} className="text-xs font-medium text-slate-600 hover:underline">
+                      Редактировать
+                    </button>
+                  </td>
                 </tr>
               ))}
               {products.length === 0 && (
-                <tr><td colSpan={6} className="py-3 text-center text-slate-400">Продуктов пока нет</td></tr>
+                <tr><td colSpan={7} className="py-3 text-center text-slate-400">Продуктов пока нет</td></tr>
               )}
             </tbody>
           </table>
