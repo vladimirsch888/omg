@@ -146,3 +146,17 @@ subscriptionsRouter.patch("/:id", async (c) => {
   });
   return c.json(updated);
 });
+
+// Operation.subscriptionId is SetNull on delete, so past billing history
+// (the Operations already created) is kept — only the subscription "plan"
+// itself and its future billing cycle go away, matching how deleting a
+// Sale also leaves its booked operations in place.
+subscriptionsRouter.delete("/:id", async (c) => {
+  const auth = c.get("auth");
+  const subscription = await prisma.subscription.findFirst({
+    where: { id: c.req.param("id"), organizationId: auth.organizationId },
+  });
+  if (!subscription) throw new AppError(404, "Подписка не найдена");
+  await prisma.subscription.delete({ where: { id: subscription.id } });
+  return c.body(null, 204);
+});
