@@ -44,6 +44,19 @@ export function ProjectsPage() {
     load();
   }
 
+  async function handleDelete(p: Project) {
+    const warning = p.children && p.children.length > 0
+      ? `Удалить проект «${p.name}» вместе со всеми подпроектами (${p.children.length}), их заявками и часами?`
+      : `Удалить проект «${p.name}»? Его заявки и часы также будут удалены.`;
+    if (!confirm(warning)) return;
+    try {
+      await api.delete(`/projects/${p.id}`);
+      load();
+    } catch (err: any) {
+      alert(err.response?.data?.error ?? "Не удалось удалить проект");
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -93,14 +106,24 @@ export function ProjectsPage() {
                 <Link to={`/projects/${p.id}`} className="font-medium hover:underline">
                   {p.name}
                 </Link>
-                <span className="text-xs text-slate-400">{p.client?.name} · {p.status}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400">{p.client?.name} · {p.status}</span>
+                  <button onClick={() => handleDelete(p)} className="text-xs font-medium text-red-600 hover:underline">
+                    Удалить
+                  </button>
+                </div>
               </div>
               {p.children && p.children.length > 0 && (
                 <div className="mt-2 ml-4 flex flex-col gap-1 border-l border-slate-200 pl-3">
                   {p.children.map((sp) => (
-                    <Link key={sp.id} to={`/projects/${sp.id}`} className="text-sm text-slate-600 hover:underline">
-                      ↳ {sp.name}
-                    </Link>
+                    <div key={sp.id} className="flex items-center justify-between">
+                      <Link to={`/projects/${sp.id}`} className="text-sm text-slate-600 hover:underline">
+                        ↳ {sp.name}
+                      </Link>
+                      <button onClick={() => handleDelete(sp)} className="text-xs font-medium text-red-600 hover:underline">
+                        Удалить
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}

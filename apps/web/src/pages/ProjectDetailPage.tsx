@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { Operation, Project, RequestTicket } from "../api/types";
 import { Card, StatCard } from "../components/Card";
@@ -15,6 +15,7 @@ interface ProjectSummary {
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [project, setProject] = useState<Project | null>(null);
   const [summary, setSummary] = useState<ProjectSummary | null>(null);
   const [operations, setOperations] = useState<Operation[]>([]);
@@ -32,17 +33,35 @@ export function ProjectDetailPage() {
 
   const hasChildren = (project.children?.length ?? 0) > 0;
 
+  async function handleDelete() {
+    const warning = hasChildren
+      ? `Удалить проект «${project!.name}» вместе со всеми подпроектами (${project!.children!.length}), их заявками и часами?`
+      : `Удалить проект «${project!.name}»? Его заявки и часы также будут удалены.`;
+    if (!confirm(warning)) return;
+    try {
+      await api.delete(`/projects/${project!.id}`);
+      navigate("/projects");
+    } catch (err: any) {
+      alert(err.response?.data?.error ?? "Не удалось удалить проект");
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <Link to="/projects" className="text-sm text-slate-500 hover:underline">
-          ← Все проекты
-        </Link>
-        <h1 className="mt-1 text-2xl font-semibold">{project.name}</h1>
-        <p className="text-sm text-slate-500">
-          Клиент: <Link to={`/clients/${project.clientId}`} className="hover:underline">{project.client?.name}</Link>
-          {project.parentId && " · подпроект"}
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <Link to="/projects" className="text-sm text-slate-500 hover:underline">
+            ← Все проекты
+          </Link>
+          <h1 className="mt-1 text-2xl font-semibold">{project.name}</h1>
+          <p className="text-sm text-slate-500">
+            Клиент: <Link to={`/clients/${project.clientId}`} className="hover:underline">{project.client?.name}</Link>
+            {project.parentId && " · подпроект"}
+          </p>
+        </div>
+        <button onClick={handleDelete} className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100">
+          Удалить проект
+        </button>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
