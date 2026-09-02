@@ -1,8 +1,26 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { ChevronRight, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { api } from "../api/client";
 import { Client } from "../api/types";
-import { Card } from "../components/Card";
+import {
+  Button,
+  ListCard,
+  Column,
+  DataTable,
+  EmptyState,
+  Field,
+  IconButton,
+  Input,
+  MetaItem,
+  Modal,
+  PageHeader,
+  RowCard,
+  Select,
+  StatusBadge,
+  useUi,
+  type BadgeTone,
+} from "../components/ui";
 
 const emptyForm = {
   name: "",
@@ -15,9 +33,23 @@ const emptyForm = {
   notes: "",
 };
 
+const statusLabel: Record<Client["status"], string> = {
+  ACTIVE: "Активен",
+  PAUSED: "Приостановлен",
+  CHURNED: "Ушёл",
+};
+
+const statusTone: Record<Client["status"], BadgeTone> = {
+  ACTIVE: "income",
+  PAUSED: "reserve",
+  CHURNED: "neutral",
+};
+
 export function ClientsPage() {
+  const ui = useUi();
   const [clients, setClients] = useState<Client[]>([]);
-  const [showForm, setShowForm] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
 
@@ -30,7 +62,7 @@ export function ClientsPage() {
   function startCreate() {
     setForm(emptyForm);
     setEditingId(null);
-    setShowForm(true);
+    setFormOpen(true);
   }
 
   function startEdit(c: Client) {
@@ -45,16 +77,12 @@ export function ClientsPage() {
       notes: c.notes ?? "",
     });
     setEditingId(c.id);
-    setShowForm(true);
-  }
-
-  function cancel() {
-    setShowForm(false);
-    setEditingId(null);
+    setFormOpen(true);
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    setSaving(true);
     const payload = {
       name: form.name,
       legalName: form.legalName || undefined,
@@ -65,100 +93,185 @@ export function ClientsPage() {
       status: form.status,
       notes: form.notes || undefined,
     };
-    if (editingId) {
-      await api.patch(`/clients/${editingId}`, payload);
-    } else {
-      await api.post("/clients", payload);
+    try {
+      if (editingId) {
+        await api.patch(`/clients/${editingId}`, payload);
+        ui.toast("Клиент обновлён", "success");
+      } else {
+        await api.post("/clients", payload);
+        ui.toast("Клиент добавлен", "success");
+      }
+      setFormOpen(false);
+      setEditingId(null);
+      load();
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось сохранить клиента", "error");
+    } finally {
+      setSaving(false);
     }
-    cancel();
-    load();
   }
 
   async function handleDelete(c: Client) {
-    if (!confirm(`Удалить клиента «${c.name}»? Все его проекты, заявки, часы и подписки будут удалены безвозвратно.`)) return;
+    const confirmed = await ui.confirm({
+      title: `Удалить клиента «${c.name}»?`,
+      message: "Все его проекты, заявки, часы и подписки будут удалены безвозвратно.",
+      confirmLabel: "Удалить",
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       await api.delete(`/clients/${c.id}`);
+      ui.toast("Клиент удалён", "success");
       load();
     } catch (err: any) {
-      alert(err.response?.data?.error ?? "Не удалось удалить клиента");
+      ui.toast(err.response?.data?.error ?? "Не удалось удалить клиента", "error");
     }
   }
 
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Клиенты (B2B)</h1>
-        <button
-          onClick={() => (showForm ? cancel() : startCreate())}
-          className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-        >
-          {showForm ? "Отмена" : "+ Новый клиент"}
-        </button>
-      </div>
-
-      {showForm && (
-        <Card>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Название компании" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Юридическое название" value={form.legalName} onChange={(e) => setForm({ ...form, legalName: e.target.value })} />
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="ИНН" value={form.inn} onChange={(e) => setForm({ ...form, inn: e.target.value })} />
-            <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Client["status"] })}>
-              <option value="ACTIVE">Активен</option>
-              <option value="PAUSED">Приостановлен</option>
-              <option value="CHURNED">Ушёл</option>
-            </select>
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Контактное лицо" value={form.contactPerson} onChange={(e) => setForm({ ...form, contactPerson: e.target.value })} />
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Email" value={form.contactEmail} onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} />
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Телефон" value={form.contactPhone} onChange={(e) => setForm({ ...form, contactPhone: e.target.value })} />
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2" placeholder="Заметки" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-            <button type="submit" className="col-span-full w-fit rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
-              {editingId ? "Сохранить изменения" : "Сохранить"}
-            </button>
-          </form>
-        </Card>
-      )}
-
-      <Card>
-        <div className="overflow-x-auto -mx-4 px-4">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-slate-500">
-              <th className="py-2">Название</th>
-              <th className="hidden py-2 sm:table-cell">ИНН</th>
-              <th className="hidden py-2 md:table-cell">Контакт</th>
-              <th className="py-2">Статус</th>
-              <th className="py-2">Проектов</th>
-              <th className="py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {clients.map((c) => (
-              <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50">
-                <td className="py-2">
-                  <Link to={`/clients/${c.id}`} className="font-medium text-slate-900 hover:underline">
-                    {c.name}
-                  </Link>
-                </td>
-                <td className="hidden py-2 sm:table-cell">{c.inn ?? "—"}</td>
-                <td className="hidden py-2 md:table-cell">{c.contactPerson ?? "—"}</td>
-                <td className="py-2">{c.status}</td>
-                <td className="py-2">{c.projectsCount ?? 0}</td>
-                <td className="py-2">
-                  <div className="flex gap-3">
-                    <button onClick={() => startEdit(c)} className="text-xs font-medium text-slate-600 hover:underline">
-                      Редактировать
-                    </button>
-                    <button onClick={() => handleDelete(c)} className="text-xs font-medium text-red-600 hover:underline">
-                      Удалить
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+  const columns: Column<Client>[] = [
+    {
+      key: "name",
+      header: "Название",
+      render: (c) => (
+        <Link to={`/clients/${c.id}`} className="font-medium text-ink transition-colors hover:text-accent">
+          {c.name}
+        </Link>
+      ),
+    },
+    { key: "inn", header: "ИНН", hideBelow: "lg", render: (c) => <span className="text-ink-muted">{c.inn ?? "—"}</span> },
+    {
+      key: "contact",
+      header: "Контакт",
+      hideBelow: "md",
+      render: (c) => <span className="text-ink-muted">{c.contactPerson ?? "—"}</span>,
+    },
+    { key: "status", header: "Статус", render: (c) => <StatusBadge label={statusLabel[c.status]} tone={statusTone[c.status]} /> },
+    {
+      key: "projects",
+      header: "Проектов",
+      align: "right",
+      render: (c) => <span className="text-ink-muted">{c.projectsCount ?? 0}</span>,
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (c) => (
+        <div className="flex items-center justify-end gap-1">
+          <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(c)} />
+          <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(c)} className="hover:text-expense" />
         </div>
-      </Card>
+      ),
+    },
+  ];
+
+  return (
+    <div className="flex flex-col gap-5 sm:gap-6">
+      <PageHeader
+        title="Клиенты"
+        description="Карточка клиента собирает всю выручку по нему: проекты, разовые продажи и подписки."
+        actions={
+          <Button variant="primary" icon={Plus} onClick={startCreate}>
+            Новый клиент
+          </Button>
+        }
+      />
+
+      <ListCard>
+        <DataTable
+          rows={clients}
+          columns={columns}
+          getRowKey={(c) => c.id}
+          renderCard={(c) => (
+            <RowCard
+              title={
+                <Link to={`/clients/${c.id}`} className="inline-flex items-center gap-1 text-ink">
+                  {c.name}
+                  <ChevronRight className="size-3.5 text-ink-subtle" />
+                </Link>
+              }
+              subtitle={c.contactPerson ?? c.legalName ?? undefined}
+              meta={
+                <>
+                  <StatusBadge label={statusLabel[c.status]} tone={statusTone[c.status]} />
+                  <MetaItem label="Проектов">{c.projectsCount ?? 0}</MetaItem>
+                  {c.inn && <MetaItem label="ИНН">{c.inn}</MetaItem>}
+                </>
+              }
+              actions={
+                <>
+                  <Button size="sm" variant="ghost" icon={Pencil} onClick={() => startEdit(c)}>
+                    Изменить
+                  </Button>
+                  <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(c)}>
+                    Удалить
+                  </Button>
+                </>
+              }
+            />
+          )}
+          empty={
+            <EmptyState
+              icon={Users}
+              title="Клиентов пока нет"
+              description="Добавьте первого клиента, чтобы вести по нему проекты, продажи и подписки."
+              action={
+                <Button variant="primary" icon={Plus} onClick={startCreate}>
+                  Новый клиент
+                </Button>
+              }
+            />
+          }
+        />
+      </ListCard>
+
+      <Modal
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        title={editingId ? "Редактирование клиента" : "Новый клиент"}
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setFormOpen(false)}>
+              Отмена
+            </Button>
+            <Button variant="primary" form="client-form" type="submit" loading={saving}>
+              Сохранить
+            </Button>
+          </>
+        }
+      >
+        <form id="client-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-3.5 pb-2 sm:grid-cols-2">
+          <Field label="Название компании" className="sm:col-span-2">
+            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+          </Field>
+          <Field label="Юридическое название">
+            <Input value={form.legalName} onChange={(e) => setForm({ ...form, legalName: e.target.value })} />
+          </Field>
+          <Field label="ИНН">
+            <Input inputMode="numeric" value={form.inn} onChange={(e) => setForm({ ...form, inn: e.target.value })} />
+          </Field>
+          <Field label="Контактное лицо">
+            <Input value={form.contactPerson} onChange={(e) => setForm({ ...form, contactPerson: e.target.value })} />
+          </Field>
+          <Field label="Статус">
+            <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Client["status"] })}>
+              <option value="ACTIVE">{statusLabel.ACTIVE}</option>
+              <option value="PAUSED">{statusLabel.PAUSED}</option>
+              <option value="CHURNED">{statusLabel.CHURNED}</option>
+            </Select>
+          </Field>
+          <Field label="Email">
+            <Input type="email" value={form.contactEmail} onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} />
+          </Field>
+          <Field label="Телефон">
+            <Input type="tel" inputMode="tel" value={form.contactPhone} onChange={(e) => setForm({ ...form, contactPhone: e.target.value })} />
+          </Field>
+          <Field label="Заметки" className="sm:col-span-2">
+            <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </Field>
+        </form>
+      </Modal>
     </div>
   );
 }

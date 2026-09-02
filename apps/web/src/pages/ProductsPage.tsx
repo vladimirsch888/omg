@@ -1,7 +1,26 @@
 import { FormEvent, useEffect, useState } from "react";
+import { Package, Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "../api/client";
 import { DictionaryType, LicenseProduct } from "../api/types";
-import { Card } from "../components/Card";
+import {
+  Badge,
+  Button,
+  ListCard,
+  Checkbox,
+  Column,
+  DataTable,
+  EmptyState,
+  Field,
+  IconButton,
+  Input,
+  MetaItem,
+  Modal,
+  PageHeader,
+  RowCard,
+  Select,
+  StatusBadge,
+  useUi,
+} from "../components/ui";
 import { formatMoney } from "../utils/format";
 
 const emptyForm = {
@@ -15,15 +34,24 @@ const emptyForm = {
   defaultTaxable: true,
 };
 
+function termLabel(p: LicenseProduct): string {
+  if (p.type === "WORK") return p.defaultWorkDays ? `~${p.defaultWorkDays} раб. дн.` : "разовая работа";
+  return `${p.defaultDurationMonths} мес.`;
+}
+
 export function ProductsPage() {
+  const ui = useUi();
   const [products, setProducts] = useState<LicenseProduct[]>([]);
   const [categories, setCategories] = useState<DictionaryType | null>(null);
-  const [showForm, setShowForm] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
 
   function load() {
-    api.get<LicenseProduct[]>("/license-products", { params: { includeInactive: true } }).then((res) => setProducts(res.data));
+    api
+      .get<LicenseProduct[]>("/license-products", { params: { includeInactive: true } })
+      .then((res) => setProducts(res.data));
   }
 
   useEffect(() => {
@@ -36,7 +64,7 @@ export function ProductsPage() {
   function startCreate() {
     setForm(emptyForm);
     setEditingId(null);
-    setShowForm(true);
+    setFormOpen(true);
   }
 
   function startEdit(p: LicenseProduct) {
@@ -51,12 +79,7 @@ export function ProductsPage() {
       defaultTaxable: p.defaultTaxable,
     });
     setEditingId(p.id);
-    setShowForm(true);
-  }
-
-  function cancel() {
-    setShowForm(false);
-    setEditingId(null);
+    setFormOpen(true);
   }
 
   function onSelectType(type: LicenseProduct["type"]) {
@@ -65,6 +88,7 @@ export function ProductsPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    setSaving(true);
     const payload = {
       name: form.name,
       type: form.type,
@@ -75,13 +99,22 @@ export function ProductsPage() {
       defaultVendorSharePercent: Number(form.defaultVendorSharePercent),
       defaultTaxable: form.defaultTaxable,
     };
-    if (editingId) {
-      await api.patch(`/license-products/${editingId}`, payload);
-    } else {
-      await api.post("/license-products", payload);
+    try {
+      if (editingId) {
+        await api.patch(`/license-products/${editingId}`, payload);
+        ui.toast("Продукт обновлён", "success");
+      } else {
+        await api.post("/license-products", payload);
+        ui.toast("Продукт добавлен", "success");
+      }
+      setFormOpen(false);
+      setEditingId(null);
+      load();
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось сохранить продукт", "error");
+    } finally {
+      setSaving(false);
     }
-    cancel();
-    load();
   }
 
   async function toggleActive(id: string, isActive: boolean) {
@@ -90,120 +123,234 @@ export function ProductsPage() {
   }
 
   async function handleDelete(p: LicenseProduct) {
-    if (!confirm(`Удалить продукт «${p.name}»?`)) return;
+    const confirmed = await ui.confirm({
+      title: `Удалить продукт «${p.name}»?`,
+      message: "Если по нему уже есть продажи или подписки, удаление будет отклонено — деактивируйте продукт вместо удаления.",
+      confirmLabel: "Удалить",
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       await api.delete(`/license-products/${p.id}`);
+      ui.toast("Продукт удалён", "success");
       load();
     } catch (err: any) {
-      alert(err.response?.data?.error ?? "Не удалось удалить продукт");
+      ui.toast(err.response?.data?.error ?? "Не удалось удалить продукт", "error");
     }
   }
 
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Продукты (лицензии)</h1>
-        <button onClick={() => (showForm ? cancel() : startCreate())} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
-          {showForm ? "Отмена" : "+ Новый продукт"}
+  const columns: Column<LicenseProduct>[] = [
+    {
+      key: "name",
+      header: "Название",
+      render: (p) => (
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-ink">{p.name}</span>
+          <Badge tone={p.type === "WORK" ? "accent" : "neutral"}>{p.type === "WORK" ? "работа" : "лицензия"}</Badge>
+        </div>
+      ),
+    },
+    {
+      key: "category",
+      header: "Категория",
+      hideBelow: "lg",
+      render: (p) => <span className="text-ink-muted">{p.categoryValue?.name ?? "—"}</span>,
+    },
+    {
+      key: "price",
+      header: "Цена",
+      align: "right",
+      render: (p) => <span className="font-medium text-ink">{formatMoney(p.defaultPrice)}</span>,
+    },
+    { key: "term", header: "Срок", align: "right", hideBelow: "md", render: (p) => <span className="text-ink-muted">{termLabel(p)}</span> },
+    {
+      key: "vendor",
+      header: "Вендору",
+      align: "right",
+      hideBelow: "md",
+      render: (p) => <span className="text-ink-muted">{String(p.defaultVendorSharePercent)}%</span>,
+    },
+    {
+      key: "active",
+      header: "Активен",
+      render: (p) => (
+        <button onClick={() => toggleActive(p.id, p.isActive)} className="cursor-pointer">
+          <StatusBadge label={p.isActive ? "Да" : "Нет"} tone={p.isActive ? "income" : "neutral"} />
         </button>
-      </div>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (p) => (
+        <div className="flex items-center justify-end gap-1">
+          <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(p)} />
+          <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(p)} className="hover:text-expense" />
+        </div>
+      ),
+    },
+  ];
 
-      <p className="text-sm text-slate-500">
-        Товарная матрица лицензий, которые вы продаёте: цена, срок подписки, доля вендора и облагается
-        ли платёж налогом. Используется при создании подписки клиенту — не нужно каждый раз вводить
-        эти параметры вручную.
-      </p>
+  return (
+    <div className="flex flex-col gap-5 sm:gap-6">
+      <PageHeader
+        title="Продукты"
+        description="Товарная матрица: цена, срок, доля вендора и налогообложение. Эти значения подставляются при создании продажи или подписки."
+        actions={
+          <Button variant="primary" icon={Plus} onClick={startCreate}>
+            Новый продукт
+          </Button>
+        }
+      />
 
-      {showForm && (
-        <Card>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2" placeholder="Название (например amoCRM Professional, 10 мест)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-            <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.type} onChange={(e) => onSelectType(e.target.value as LicenseProduct["type"])}>
+      <ListCard>
+        <DataTable
+          rows={products}
+          columns={columns}
+          getRowKey={(p) => p.id}
+          renderCard={(p) => (
+            <RowCard
+              title={p.name}
+              subtitle={p.categoryValue?.name}
+              value={formatMoney(p.defaultPrice)}
+              meta={
+                <>
+                  <Badge tone={p.type === "WORK" ? "accent" : "neutral"}>{p.type === "WORK" ? "работа" : "лицензия"}</Badge>
+                  <MetaItem label="Срок">{termLabel(p)}</MetaItem>
+                  <MetaItem label="Вендору">{String(p.defaultVendorSharePercent)}%</MetaItem>
+                  <StatusBadge label={p.isActive ? "Активен" : "Отключён"} tone={p.isActive ? "income" : "neutral"} />
+                </>
+              }
+              actions={
+                <>
+                  <Button size="sm" variant="ghost" onClick={() => toggleActive(p.id, p.isActive)}>
+                    {p.isActive ? "Отключить" : "Включить"}
+                  </Button>
+                  <Button size="sm" variant="ghost" icon={Pencil} onClick={() => startEdit(p)}>
+                    Изменить
+                  </Button>
+                  <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(p)}>
+                    Удалить
+                  </Button>
+                </>
+              }
+            />
+          )}
+          empty={
+            <EmptyState
+              icon={Package}
+              title="Продуктов пока нет"
+              description="Добавьте лицензии и работы, которые вы продаёте — они станут шаблонами для продаж и подписок."
+              action={
+                <Button variant="primary" icon={Plus} onClick={startCreate}>
+                  Новый продукт
+                </Button>
+              }
+            />
+          }
+        />
+      </ListCard>
+
+      <Modal
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        title={editingId ? "Редактирование продукта" : "Новый продукт"}
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setFormOpen(false)}>
+              Отмена
+            </Button>
+            <Button variant="primary" form="product-form" type="submit" loading={saving}>
+              Сохранить
+            </Button>
+          </>
+        }
+      >
+        <form id="product-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-3.5 pb-2 sm:grid-cols-2">
+          <Field label="Название" className="sm:col-span-2">
+            <Input
+              placeholder="Например: amoCRM Professional, 10 мест"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              required
+            />
+          </Field>
+
+          <Field label="Тип">
+            <Select value={form.type} onChange={(e) => onSelectType(e.target.value as LicenseProduct["type"])}>
               <option value="LICENSE">Лицензия (по подписке)</option>
               <option value="WORK">Работа (разовая, без подписки)</option>
-            </select>
-            <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.categoryValueId} onChange={(e) => setForm({ ...form, categoryValueId: e.target.value })}>
-              <option value="">Категория операций…</option>
-              {categories?.values.map((v) => (
-                <option key={v.id} value={v.id}>{v.name}</option>
-              ))}
-            </select>
-            <input type="number" step="0.01" className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Цена по умолчанию" value={form.defaultPrice} onChange={(e) => setForm({ ...form, defaultPrice: e.target.value })} required />
-            {form.type === "LICENSE" && (
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400">Срок подписки, мес.</label>
-                <input type="number" min="1" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.defaultDurationMonths} onChange={(e) => setForm({ ...form, defaultDurationMonths: e.target.value })} required />
-              </div>
-            )}
-            {form.type === "WORK" && (
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400">Срок выполнения, раб. дней</label>
-                <input type="number" min="1" className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Необязательно" value={form.defaultWorkDays} onChange={(e) => setForm({ ...form, defaultWorkDays: e.target.value })} />
-              </div>
-            )}
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-400">Доля вендора, %</label>
-              <input type="number" min="0" max="100" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.defaultVendorSharePercent} onChange={(e) => setForm({ ...form, defaultVendorSharePercent: e.target.value })} required />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.defaultTaxable} onChange={(e) => setForm({ ...form, defaultTaxable: e.target.checked })} />
-              Облагается налогом (не оплата на карту)
-            </label>
-            <button type="submit" className="w-fit rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 sm:col-span-3">
-              {editingId ? "Сохранить изменения" : "Сохранить"}
-            </button>
-          </form>
-        </Card>
-      )}
+            </Select>
+          </Field>
 
-      <Card>
-        <div className="overflow-x-auto -mx-4 px-4">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-slate-500">
-                <th className="py-2">Название</th>
-                <th className="hidden py-2 sm:table-cell">Категория</th>
-                <th className="py-2">Цена</th>
-                <th className="hidden py-2 md:table-cell">Срок</th>
-                <th className="hidden py-2 md:table-cell">Вендору, %</th>
-                <th className="py-2">Активен</th>
-                <th className="py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.map((p) => (
-                <tr key={p.id} className="border-b border-slate-100">
-                  <td className="py-2">{p.name}</td>
-                  <td className="hidden py-2 sm:table-cell">{p.categoryValue?.name ?? "—"}</td>
-                  <td className="py-2">{formatMoney(p.defaultPrice)}</td>
-                  <td className="hidden py-2 md:table-cell">
-                    {p.type === "WORK" ? (p.defaultWorkDays ? `~${p.defaultWorkDays} раб. дн.` : "разовая работа") : `${p.defaultDurationMonths} мес.`}
-                  </td>
-                  <td className="hidden py-2 md:table-cell">{p.defaultVendorSharePercent}%</td>
-                  <td className="py-2">
-                    <button onClick={() => toggleActive(p.id, p.isActive)} className={`rounded px-2 py-1 text-xs ${p.isActive ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>
-                      {p.isActive ? "Да" : "Нет"}
-                    </button>
-                  </td>
-                  <td className="py-2">
-                    <div className="flex gap-3">
-                      <button onClick={() => startEdit(p)} className="text-xs font-medium text-slate-600 hover:underline">
-                        Редактировать
-                      </button>
-                      <button onClick={() => handleDelete(p)} className="text-xs font-medium text-red-600 hover:underline">
-                        Удалить
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+          <Field label="Категория операций">
+            <Select value={form.categoryValueId} onChange={(e) => setForm({ ...form, categoryValueId: e.target.value })}>
+              <option value="">Без категории</option>
+              {categories?.values.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
               ))}
-              {products.length === 0 && (
-                <tr><td colSpan={7} className="py-3 text-center text-slate-400">Продуктов пока нет</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+            </Select>
+          </Field>
+
+          <Field label="Цена по умолчанию">
+            <Input
+              type="number"
+              step="0.01"
+              inputMode="decimal"
+              value={form.defaultPrice}
+              onChange={(e) => setForm({ ...form, defaultPrice: e.target.value })}
+              required
+            />
+          </Field>
+
+          {form.type === "LICENSE" ? (
+            <Field label="Срок подписки, мес.">
+              <Input
+                type="number"
+                min="1"
+                inputMode="numeric"
+                value={form.defaultDurationMonths}
+                onChange={(e) => setForm({ ...form, defaultDurationMonths: e.target.value })}
+                required
+              />
+            </Field>
+          ) : (
+            <Field label="Срок выполнения, раб. дней" hint="Необязательно — подставится в продажу">
+              <Input
+                type="number"
+                min="1"
+                inputMode="numeric"
+                value={form.defaultWorkDays}
+                onChange={(e) => setForm({ ...form, defaultWorkDays: e.target.value })}
+              />
+            </Field>
+          )}
+
+          <Field label="Доля вендора, %">
+            <Input
+              type="number"
+              min="0"
+              max="100"
+              inputMode="numeric"
+              value={form.defaultVendorSharePercent}
+              onChange={(e) => setForm({ ...form, defaultVendorSharePercent: e.target.value })}
+              required
+            />
+          </Field>
+
+          <div className="flex items-end pb-2.5">
+            <Checkbox
+              label="Облагается налогом"
+              checked={form.defaultTaxable}
+              onChange={(e) => setForm({ ...form, defaultTaxable: e.target.checked })}
+            />
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

@@ -1,20 +1,118 @@
 @import "tailwindcss";
+@import "@fontsource-variable/inter";
 
-body {
-  @apply bg-slate-50 text-slate-900;
+/*
+  Palette: warm graphite, not black. The whole app runs on one softly dark
+  theme — surfaces step up in lightness (canvas < surface < raised), borders
+  stay low-contrast, and the only saturated colours are the accent and the
+  three financial semantics (income / expense / tax reserve). Everything is
+  desaturated on purpose: bright red/green is what makes a finance UI look
+  cheap and alarming.
+*/
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Surfaces, from the page background upwards */
+  --color-canvas: #1a1917;
+  --color-surface: #232120;
+  --color-raised: #2b2927;
+  --color-overlay: #302d2b;
+
+  /* Hairlines */
+  --color-line: #34312d;
+  --color-line-strong: #454039;
+
+  /* Type */
+  --color-ink: #f2efe9;
+  --color-ink-muted: #a8a29a;
+  --color-ink-subtle: #7d766d;
+
+  /* Accent — muted petrol, lifted so it reads on a dark ground */
+  --color-accent: #3fa697;
+  --color-accent-hover: #4bb8a8;
+  --color-accent-ink: #0f2b28;
+  --color-accent-soft: #24413e;
+
+  /* Financial semantics */
+  --color-income: #56b894;
+  --color-income-soft: #223c35;
+  --color-expense: #d08268;
+  --color-expense-soft: #402c26;
+  --color-reserve: #d6a85f;
+  --color-reserve-soft: #3e3225;
+
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.125rem;
 }
 
-/* iOS Safari zooms the page when focusing a field with font-size < 16px.
-   Force 16px on all form controls regardless of the surrounding text size. */
-input,
-select,
-textarea {
-  font-size: 16px;
+@layer base {
+  html {
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-ink antialiased;
+    font-family: var(--font-sans);
+    /* Kill the grey flash iOS paints over every tapped element. */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Money and dates line up in columns instead of jittering. */
+  .tnum,
+  table td,
+  table th {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+    iOS Safari zooms the page when focusing a field with font-size < 16px.
+    Force 16px on all form controls regardless of the surrounding text size.
+  */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  /* Native pickers render black-on-black without this. */
+  input[type="date"],
+  input[type="month"] {
+    color-scheme: dark;
+  }
+
+  ::selection {
+    background: var(--color-accent-soft);
+    color: var(--color-ink);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
 }
 
 @supports (padding: max(0px)) {
   body {
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }

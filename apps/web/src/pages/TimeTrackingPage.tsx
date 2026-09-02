@@ -1,7 +1,24 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Clock, Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "../api/client";
 import { Project, RequestTicket, TimeEntry } from "../api/types";
-import { Card } from "../components/Card";
+import {
+  Button,
+  ListCard,
+  Column,
+  DataTable,
+  EmptyState,
+  Field,
+  IconButton,
+  Input,
+  MetaItem,
+  Modal,
+  PageHeader,
+  RowCard,
+  Select,
+  StatCard,
+  useUi,
+} from "../components/ui";
 import { formatDate, toDateInputValue } from "../utils/format";
 
 const emptyForm = {
@@ -13,10 +30,12 @@ const emptyForm = {
 };
 
 export function TimeTrackingPage() {
+  const ui = useUi();
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [requests, setRequests] = useState<RequestTicket[]>([]);
-  const [showForm, setShowForm] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
 
@@ -32,31 +51,41 @@ export function TimeTrackingPage() {
 
   const requestsForProject = requests.filter((r) => r.projectId === form.projectId);
 
+  const { monthHours, totalHours } = useMemo(() => {
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    let month = 0;
+    let total = 0;
+    for (const e of entries) {
+      const hours = Number(e.hours);
+      total += hours;
+      if (new Date(e.date) >= monthStart) month += hours;
+    }
+    return { monthHours: month, totalHours: total };
+  }, [entries]);
+
   function startCreate() {
     setForm(emptyForm);
     setEditingId(null);
-    setShowForm(true);
+    setFormOpen(true);
   }
 
-  function startEdit(e: TimeEntry) {
+  function startEdit(entry: TimeEntry) {
     setForm({
-      projectId: e.projectId,
-      requestId: e.requestId ?? "",
-      date: toDateInputValue(e.date),
-      hours: String(e.hours),
-      description: e.description ?? "",
+      projectId: entry.projectId,
+      requestId: entry.requestId ?? "",
+      date: toDateInputValue(entry.date),
+      hours: String(entry.hours),
+      description: entry.description ?? "",
     });
-    setEditingId(e.id);
-    setShowForm(true);
-  }
-
-  function cancel() {
-    setShowForm(false);
-    setEditingId(null);
+    setEditingId(entry.id);
+    setFormOpen(true);
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    setSaving(true);
     const payload = {
       projectId: form.projectId,
       requestId: form.requestId || undefined,
@@ -64,96 +93,186 @@ export function TimeTrackingPage() {
       hours: Number(form.hours),
       description: form.description || undefined,
     };
-    if (editingId) {
-      await api.patch(`/time-entries/${editingId}`, payload);
-    } else {
-      await api.post("/time-entries", payload);
+    try {
+      if (editingId) {
+        await api.patch(`/time-entries/${editingId}`, payload);
+        ui.toast("Запись обновлена", "success");
+      } else {
+        await api.post("/time-entries", payload);
+        ui.toast("Время записано", "success");
+      }
+      setFormOpen(false);
+      setEditingId(null);
+      load();
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось сохранить запись", "error");
+    } finally {
+      setSaving(false);
     }
-    cancel();
-    load();
   }
 
   async function handleDelete(entry: TimeEntry) {
-    if (!confirm(`Удалить запись на ${entry.hours} ч?`)) return;
+    const confirmed = await ui.confirm({
+      title: "Удалить запись времени?",
+      message: `${entry.hours} ч от ${formatDate(entry.date)}${entry.project?.name ? ` — ${entry.project.name}` : ""}.`,
+      confirmLabel: "Удалить",
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       await api.delete(`/time-entries/${entry.id}`);
+      ui.toast("Запись удалена", "success");
       load();
     } catch (err: any) {
-      alert(err.response?.data?.error ?? "Не удалось удалить запись");
+      ui.toast(err.response?.data?.error ?? "Не удалось удалить запись", "error");
     }
   }
 
+  const columns: Column<TimeEntry>[] = [
+    { key: "date", header: "Дата", render: (e) => <span className="text-ink-muted">{formatDate(e.date)}</span> },
+    { key: "project", header: "Проект", render: (e) => <span className="font-medium text-ink">{e.project?.name}</span> },
+    { key: "request", header: "Заявка", hideBelow: "md", render: (e) => <span className="text-ink-muted">{e.request?.title ?? "—"}</span> },
+    { key: "user", header: "Сотрудник", hideBelow: "lg", render: (e) => <span className="text-ink-muted">{e.user?.name}</span> },
+    { key: "hours", header: "Часы", align: "right", render: (e) => <span className="font-medium text-ink">{e.hours} ч</span> },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (e) => (
+        <div className="flex items-center justify-end gap-1">
+          <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(e)} />
+          <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(e)} className="hover:text-expense" />
+        </div>
+      ),
+    },
+  ];
+
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Учёт часов по заявкам</h1>
-        <button onClick={() => (showForm ? cancel() : startCreate())} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
-          {showForm ? "Отмена" : "+ Записать время"}
-        </button>
+    <div className="flex flex-col gap-5 sm:gap-6">
+      <PageHeader
+        title="Учёт часов"
+        description="Списанное время по проектам и заявкам — основа для оценки реальной себестоимости работ."
+        actions={
+          <Button variant="primary" icon={Plus} onClick={startCreate}>
+            Записать время
+          </Button>
+        }
+      />
+
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+        <StatCard label="Часов в этом месяце" value={`${monthHours} ч`} tone="accent" icon={Clock} />
+        <StatCard label="Всего записано" value={`${totalHours} ч`} icon={Clock} />
       </div>
 
-      {showForm && (
-        <Card>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value, requestId: "" })} required>
-              <option value="">Проект…</option>
+      <ListCard>
+        <DataTable
+          rows={entries}
+          columns={columns}
+          getRowKey={(e) => e.id}
+          renderCard={(e) => (
+            <RowCard
+              title={e.project?.name ?? "—"}
+              subtitle={e.request?.title ?? e.description ?? undefined}
+              value={`${e.hours} ч`}
+              meta={
+                <>
+                  <MetaItem label="Дата">{formatDate(e.date)}</MetaItem>
+                  {e.user?.name && <MetaItem label="Кто">{e.user.name}</MetaItem>}
+                </>
+              }
+              actions={
+                <>
+                  <Button size="sm" variant="ghost" icon={Pencil} onClick={() => startEdit(e)}>
+                    Изменить
+                  </Button>
+                  <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(e)}>
+                    Удалить
+                  </Button>
+                </>
+              }
+            />
+          )}
+          empty={
+            <EmptyState
+              icon={Clock}
+              title="Записей пока нет"
+              description="Запишите первые часы по проекту или заявке."
+              action={
+                <Button variant="primary" icon={Plus} onClick={startCreate}>
+                  Записать время
+                </Button>
+              }
+            />
+          }
+        />
+      </ListCard>
+
+      <Modal
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        title={editingId ? "Редактирование записи" : "Запись времени"}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setFormOpen(false)}>
+              Отмена
+            </Button>
+            <Button variant="primary" form="time-form" type="submit" loading={saving}>
+              Сохранить
+            </Button>
+          </>
+        }
+      >
+        <form id="time-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-3.5 pb-2 sm:grid-cols-2">
+          <Field label="Проект" className="sm:col-span-2">
+            <Select
+              value={form.projectId}
+              onChange={(e) => setForm({ ...form, projectId: e.target.value, requestId: "" })}
+              required
+            >
+              <option value="">Выберите проект…</option>
               {projects.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
               ))}
-            </select>
-            <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.requestId} onChange={(e) => setForm({ ...form, requestId: e.target.value })} disabled={!form.projectId}>
+            </Select>
+          </Field>
+
+          <Field label="Заявка" className="sm:col-span-2">
+            <Select
+              value={form.requestId}
+              onChange={(e) => setForm({ ...form, requestId: e.target.value })}
+              disabled={!form.projectId}
+            >
               <option value="">Без привязки к заявке</option>
               {requestsForProject.map((r) => (
-                <option key={r.id} value={r.id}>{r.title}</option>
+                <option key={r.id} value={r.id}>
+                  {r.title}
+                </option>
               ))}
-            </select>
-            <input type="date" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} required />
-            <input type="number" step="0.25" className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Часы" value={form.hours} onChange={(e) => setForm({ ...form, hours: e.target.value })} required />
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2" placeholder="Описание работ" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-            <button type="submit" className="w-fit rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
-              {editingId ? "Сохранить изменения" : "Сохранить"}
-            </button>
-          </form>
-        </Card>
-      )}
+            </Select>
+          </Field>
 
-      <Card>
-        <div className="overflow-x-auto -mx-4 px-4">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-slate-500">
-              <th className="py-2">Дата</th>
-              <th className="py-2">Проект</th>
-              <th className="hidden py-2 sm:table-cell">Заявка</th>
-              <th className="hidden py-2 md:table-cell">Сотрудник</th>
-              <th className="py-2">Часы</th>
-              <th className="py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((e) => (
-              <tr key={e.id} className="border-b border-slate-100">
-                <td className="py-2">{formatDate(e.date)}</td>
-                <td className="py-2">{e.project?.name}</td>
-                <td className="hidden py-2 sm:table-cell">{e.request?.title ?? "—"}</td>
-                <td className="hidden py-2 md:table-cell">{e.user?.name}</td>
-                <td className="py-2 font-medium">{e.hours} ч</td>
-                <td className="py-2">
-                  <div className="flex gap-3">
-                    <button onClick={() => startEdit(e)} className="text-xs font-medium text-slate-600 hover:underline">
-                      Редактировать
-                    </button>
-                    <button onClick={() => handleDelete(e)} className="text-xs font-medium text-red-600 hover:underline">
-                      Удалить
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </div>
-      </Card>
+          <Field label="Дата">
+            <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} required />
+          </Field>
+
+          <Field label="Часы">
+            <Input
+              type="number"
+              step="0.25"
+              inputMode="decimal"
+              value={form.hours}
+              onChange={(e) => setForm({ ...form, hours: e.target.value })}
+              required
+            />
+          </Field>
+
+          <Field label="Описание работ" className="sm:col-span-2">
+            <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </Field>
+        </form>
+      </Modal>
     </div>
   );
 }

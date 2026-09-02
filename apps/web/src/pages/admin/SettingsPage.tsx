@@ -1,12 +1,24 @@
 import { useEffect, useState } from "react";
+import { Database, Trash2 } from "lucide-react";
 import { api } from "../../api/client";
 import { DemoStatus } from "../../api/types";
-import { Card } from "../../components/Card";
+import { Button, Card, PageHeader, useUi } from "../../components/ui";
+
+const counters: { key: keyof DemoStatus; label: string }[] = [
+  { key: "clients", label: "клиентов" },
+  { key: "projects", label: "проектов" },
+  { key: "sales", label: "продаж" },
+  { key: "subscriptions", label: "подписок" },
+  { key: "operations", label: "операций" },
+  { key: "requests", label: "заявок" },
+  { key: "timeEntries", label: "записей часов" },
+  { key: "licenseProducts", label: "продуктов" },
+];
 
 export function SettingsPage() {
+  const ui = useUi();
   const [status, setStatus] = useState<DemoStatus | null>(null);
   const [busy, setBusy] = useState<"seed" | "clear" | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
 
   function load() {
     api.get<DemoStatus>("/demo/status").then((res) => setStatus(res.data));
@@ -16,89 +28,74 @@ export function SettingsPage() {
 
   async function handleSeed() {
     setBusy("seed");
-    setMessage(null);
     try {
       await api.post("/demo/seed");
-      setMessage("Демо-данные добавлены.");
+      ui.toast("Демо-данные добавлены", "success");
       load();
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось добавить демо-данные", "error");
     } finally {
       setBusy(null);
     }
   }
 
   async function handleClear() {
-    if (!confirm("Удалить все демо-данные (демо-клиенты, проекты, операции, заявки, часы)? Реальные данные не затронутся.")) {
-      return;
-    }
+    const confirmed = await ui.confirm({
+      title: "Удалить демо-данные?",
+      message: "Демо-клиенты, проекты, продажи, подписки, операции, заявки и часы будут удалены. Реальные данные не затронутся.",
+      confirmLabel: "Удалить",
+      danger: true,
+    });
+    if (!confirmed) return;
     setBusy("clear");
-    setMessage(null);
     try {
       await api.post("/demo/clear");
-      setMessage("Демо-данные удалены.");
+      ui.toast("Демо-данные удалены", "success");
       load();
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось удалить демо-данные", "error");
     } finally {
       setBusy(null);
     }
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold">Настройки</h1>
+    <div className="flex flex-col gap-5 sm:gap-6">
+      <PageHeader title="Настройки" />
 
       <Card title="Демо-данные">
-        <p className="mb-4 text-sm text-slate-500">
-          Наполняет систему тестовыми клиентами, проектами (включая подпроекты), операциями по всем
-          категориям (лицензии amoCRM/Wazzup/NOVA, работы, сопровождение, зарплата и т.д.), заявками и
-          учётом часов за последние месяцы — удобно, чтобы посмотреть, как выглядят отчёты и дашборд
-          с реальными цифрами. Помечаются отдельным флагом и не смешиваются с вашими настоящими данными.
+        <p className="text-sm leading-relaxed text-ink-muted">
+          Наполняет систему тестовыми клиентами, проектами с подпроектами, продажами, подписками,
+          операциями по всем категориям, заявками и часами за последние месяцы — чтобы посмотреть,
+          как выглядят отчёты и дашборд с реальными цифрами. Такие записи помечены отдельным флагом
+          и не смешиваются с настоящими данными.
         </p>
 
         {status && (
-          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <div className="rounded-md bg-slate-50 p-2 text-center">
-              <div className="text-lg font-semibold">{status.clients}</div>
-              <div className="text-xs text-slate-500">клиентов</div>
-            </div>
-            <div className="rounded-md bg-slate-50 p-2 text-center">
-              <div className="text-lg font-semibold">{status.projects}</div>
-              <div className="text-xs text-slate-500">проектов</div>
-            </div>
-            <div className="rounded-md bg-slate-50 p-2 text-center">
-              <div className="text-lg font-semibold">{status.sales}</div>
-              <div className="text-xs text-slate-500">продаж</div>
-            </div>
-            <div className="rounded-md bg-slate-50 p-2 text-center">
-              <div className="text-lg font-semibold">{status.operations}</div>
-              <div className="text-xs text-slate-500">операций</div>
-            </div>
-            <div className="rounded-md bg-slate-50 p-2 text-center">
-              <div className="text-lg font-semibold">{status.requests}</div>
-              <div className="text-xs text-slate-500">заявок</div>
-            </div>
-            <div className="rounded-md bg-slate-50 p-2 text-center">
-              <div className="text-lg font-semibold">{status.timeEntries}</div>
-              <div className="text-xs text-slate-500">записей часов</div>
-            </div>
+          <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            {counters.map(({ key, label }) => (
+              <div key={key} className="rounded-xl border border-line bg-raised/50 p-3 text-center">
+                <div className="text-lg font-semibold text-ink tnum">{status[key] as number}</div>
+                <div className="mt-0.5 text-[11px] text-ink-subtle">{label}</div>
+              </div>
+            ))}
           </div>
         )}
 
-        {message && <div className="mb-3 text-sm text-green-700">{message}</div>}
-
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={handleSeed}
-            disabled={busy !== null}
-            className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-          >
-            {busy === "seed" ? "Наполняю…" : "Наполнить демо-данными"}
-          </button>
-          <button
-            onClick={handleClear}
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button variant="primary" icon={Database} loading={busy === "seed"} disabled={busy !== null} onClick={handleSeed}>
+            Наполнить демо-данными
+          </Button>
+          <Button
+            variant="secondary"
+            icon={Trash2}
+            loading={busy === "clear"}
             disabled={busy !== null || !status?.hasDemoData}
-            className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+            onClick={handleClear}
+            className="text-expense"
           >
-            {busy === "clear" ? "Удаляю…" : "Удалить демо-данные"}
-          </button>
+            Удалить демо-данные
+          </Button>
         </div>
       </Card>
     </div>

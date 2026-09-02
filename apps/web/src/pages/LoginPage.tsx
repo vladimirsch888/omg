@@ -1,6 +1,8 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { AlertTriangle } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { Button, Field, Input } from "../components/ui";
 
 export function LoginPage() {
   const { login, register } = useAuth();
@@ -32,59 +34,73 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-slate-50">
-      <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
-        <h1 className="mb-1 text-xl font-semibold">Учёт выручки</h1>
-        <p className="mb-6 text-sm text-slate-500">
-          {mode === "login" ? "Войдите в свой аккаунт" : "Создайте компанию и первого пользователя"}
+    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden px-4 py-10">
+      {/* Soft accent wash so the sign-in screen doesn't read as a flat dark box. */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(90% 60% at 50% -10%, rgba(63,166,151,0.14) 0%, rgba(63,166,151,0) 60%)",
+        }}
+      />
+
+      <div className="relative w-full max-w-sm rounded-2xl border border-line bg-surface p-6 shadow-2xl sm:p-8">
+        <h1 className="text-lg font-semibold tracking-tight">
+          {mode === "login" ? "Вход в систему" : "Создание компании"}
+        </h1>
+        <p className="mt-1.5 text-sm text-ink-muted">
+          {mode === "login"
+            ? "Учёт выручки, подписок и денег на руках."
+            : "Заведите компанию и первого пользователя — владельца."}
         </p>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+
+        <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-3.5">
           {mode === "register" && (
             <>
-              <input
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                placeholder="Название компании"
-                value={organizationName}
-                onChange={(e) => setOrganizationName(e.target.value)}
-                required
-              />
-              <input
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                placeholder="Ваше имя"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
+              <Field label="Название компании">
+                <Input value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} required />
+              </Field>
+              <Field label="Ваше имя">
+                <Input value={name} onChange={(e) => setName(e.target.value)} required />
+              </Field>
             </>
           )}
-          <input
-            type="email"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <input
-            type="password"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-            placeholder="Пароль"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={6}
-          />
-          {error && <div className="text-sm text-red-600">{error}</div>}
-          <button
-            type="submit"
-            disabled={submitting}
-            className="mt-2 rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-          >
+
+          <Field label="Email">
+            <Input
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </Field>
+
+          <Field label="Пароль">
+            <Input
+              type="password"
+              autoComplete={mode === "login" ? "current-password" : "new-password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={6}
+            />
+          </Field>
+
+          {error && (
+            <div className="flex items-start gap-2 rounded-lg border border-expense/25 bg-expense-soft px-3 py-2.5 text-sm text-expense">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" strokeWidth={2} />
+              {error}
+            </div>
+          )}
+
+          <Button type="submit" variant="primary" loading={submitting} className="mt-1 w-full">
             {mode === "login" ? "Войти" : "Зарегистрироваться"}
-          </button>
+          </Button>
         </form>
+
         <button
-          className="mt-4 text-sm text-slate-500 hover:underline"
+          className="mt-5 w-full text-center text-sm text-ink-muted transition-colors hover:text-accent"
           onClick={() => setMode(mode === "login" ? "register" : "login")}
         >
           {mode === "login" ? "Первый раз здесь? Создать компанию" : "Уже есть аккаунт? Войти"}

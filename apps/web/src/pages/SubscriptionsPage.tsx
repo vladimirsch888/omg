@@ -1,8 +1,31 @@
 import { FormEvent, useEffect, useState } from "react";
+import { CalendarClock, CreditCard, Pencil, Plus, RefreshCw, Trash2, TrendingUp, Wallet } from "lucide-react";
 import { api } from "../api/client";
 import { Client, LicenseProduct, Project, Subscription, SubscriptionMonthSummary } from "../api/types";
-import { Card, StatCard } from "../components/Card";
-import { formatMoney, formatDate, toDateInputValue } from "../utils/format";
+import {
+  Badge,
+  Button,
+  ListCard,
+  Checkbox,
+  Column,
+  DataTable,
+  EmptyState,
+  Field,
+  IconButton,
+  Input,
+  MetaItem,
+  Modal,
+  PageHeader,
+  ReadonlyValue,
+  RowCard,
+  Select,
+  SelectCompact,
+  StatCard,
+  StatusBadge,
+  useUi,
+  type BadgeTone,
+} from "../components/ui";
+import { formatDate, formatMoney, toDateInputValue } from "../utils/format";
 
 const statusLabel: Record<Subscription["status"], string> = {
   ACTIVE: "Активна",
@@ -10,14 +33,30 @@ const statusLabel: Record<Subscription["status"], string> = {
   CANCELLED: "Отменена",
 };
 
+const statusTone: Record<Subscription["status"], BadgeTone> = {
+  ACTIVE: "income",
+  PAUSED: "reserve",
+  CANCELLED: "neutral",
+};
+
+/** Renewals due within a week are what the page is really for — flag them. */
+function dueTone(nextBillingDate: string): BadgeTone {
+  const days = (new Date(nextBillingDate).getTime() - Date.now()) / 86_400_000;
+  if (days < 0) return "expense";
+  if (days <= 7) return "reserve";
+  return "neutral";
+}
+
 export function SubscriptionsPage() {
+  const ui = useUi();
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [monthSummary, setMonthSummary] = useState<SubscriptionMonthSummary | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [products, setProducts] = useState<LicenseProduct[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [showForm, setShowForm] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null);
 
@@ -70,7 +109,7 @@ export function SubscriptionsPage() {
     setStartDate(new Date().toISOString().slice(0, 10));
     setEditingId(null);
     setEditingSubscription(null);
-    setShowForm(true);
+    setFormOpen(true);
   }
 
   function startEdit(s: Subscription) {
@@ -82,250 +121,424 @@ export function SubscriptionsPage() {
     setStatus(s.status);
     setEditingId(s.id);
     setEditingSubscription(s);
-    setShowForm(true);
-  }
-
-  function cancel() {
-    setShowForm(false);
-    setEditingId(null);
-    setEditingSubscription(null);
+    setFormOpen(true);
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (editingId) {
-      await api.patch(`/subscriptions/${editingId}`, {
-        price: Number(price),
-        durationMonths: Number(durationMonths),
-        vendorSharePercent: Number(vendorSharePercent),
-        taxable,
-        nextBillingDate: new Date(nextBillingDate).toISOString(),
-        status,
-      });
-    } else {
-      await api.post("/subscriptions", {
-        clientId,
-        projectId: projectId || undefined,
-        licenseProductId,
-        price: price ? Number(price) : undefined,
-        durationMonths: durationMonths ? Number(durationMonths) : undefined,
-        vendorSharePercent: vendorSharePercent ? Number(vendorSharePercent) : undefined,
-        taxable,
-        startDate: new Date(startDate).toISOString(),
-      });
+    setSaving(true);
+    try {
+      if (editingId) {
+        await api.patch(`/subscriptions/${editingId}`, {
+          price: Number(price),
+          durationMonths: Number(durationMonths),
+          vendorSharePercent: Number(vendorSharePercent),
+          taxable,
+          nextBillingDate: new Date(nextBillingDate).toISOString(),
+          status,
+        });
+        ui.toast("Подписка обновлена", "success");
+      } else {
+        await api.post("/subscriptions", {
+          clientId,
+          projectId: projectId || undefined,
+          licenseProductId,
+          price: price ? Number(price) : undefined,
+          durationMonths: durationMonths ? Number(durationMonths) : undefined,
+          vendorSharePercent: vendorSharePercent ? Number(vendorSharePercent) : undefined,
+          taxable,
+          startDate: new Date(startDate).toISOString(),
+        });
+        ui.toast("Подписка создана, первый платёж выставлен", "success");
+      }
+      setFormOpen(false);
+      load();
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось сохранить подписку", "error");
+    } finally {
+      setSaving(false);
     }
-    cancel();
-    load();
   }
 
   async function handleBill(s: Subscription) {
-    const input = window.prompt(
-      `Сумма продления «${s.licenseProduct?.name}» для клиента «${s.client?.name}». Если изменить — новая сумма закрепится и для следующих продлений.`,
-      String(s.price)
-    );
+    const input = await ui.prompt({
+      title: "Продлить подписку",
+      message: `${s.licenseProduct?.name} — ${s.client?.name}`,
+      label: "Сумма продления",
+      type: "number",
+      defaultValue: String(s.price),
+      confirmLabel: "Продлить",
+      hint: "Если сумма изменилась, новая цена закрепится и для следующих продлений.",
+    });
     if (input === null) return;
     const amount = Number(input.replace(",", "."));
     if (!amount || amount <= 0) {
-      alert("Некорректная сумма");
+      ui.toast("Некорректная сумма", "error");
       return;
     }
     setBusyId(s.id);
     try {
       await api.post(`/subscriptions/${s.id}/bill`, { amount });
+      ui.toast(`Продлено на ${formatMoney(amount)}`, "success");
       load();
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось продлить подписку", "error");
     } finally {
       setBusyId(null);
     }
   }
 
-  async function handleStatusChange(id: string, status: Subscription["status"]) {
-    await api.patch(`/subscriptions/${id}`, { status });
+  async function handleStatusChange(id: string, next: Subscription["status"]) {
+    await api.patch(`/subscriptions/${id}`, { status: next });
     load();
   }
 
   async function handleDelete(s: Subscription) {
-    if (!confirm(`Удалить подписку «${s.licenseProduct?.name}» клиента «${s.client?.name}»? Уже выставленные платежи (операции) сохранятся.`)) return;
+    const confirmed = await ui.confirm({
+      title: "Удалить подписку?",
+      message: `${s.licenseProduct?.name} — ${s.client?.name}. Уже выставленные платежи сохранятся в операциях.`,
+      confirmLabel: "Удалить",
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       await api.delete(`/subscriptions/${s.id}`);
+      ui.toast("Подписка удалена", "success");
       load();
     } catch (err: any) {
-      alert(err.response?.data?.error ?? "Не удалось удалить подписку");
+      ui.toast(err.response?.data?.error ?? "Не удалось удалить подписку", "error");
     }
   }
 
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Подписки на лицензии</h1>
-        <button onClick={() => (showForm ? cancel() : startCreate())} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
-          {showForm ? "Отмена" : "+ Новая подписка"}
-        </button>
-      </div>
+  const renewedShare =
+    monthSummary && monthSummary.totalExpected > 0
+      ? Math.round((monthSummary.renewedAmount / monthSummary.totalExpected) * 100)
+      : 0;
 
-      <p className="text-sm text-slate-500">
-        Продажа лицензии клиенту с автоматическим расчётом: сумма от клиента → доля вендора списывается
-        расходом → с остатка откладывается резерв на налог → остальное свободно. Когда наступает
-        следующий период — жмите «Продлить»: система предложит подтвердить сумму (можно изменить, если
-        цена выросла или упала — новая сумма закрепится и для следующих продлений) и создаст операции
-        за новый период одной кнопкой, без повторного заполнения формы.
-      </p>
+  const columns: Column<Subscription>[] = [
+    {
+      key: "client",
+      header: "Клиент",
+      width: "22%",
+      render: (s) => <span className="font-medium text-ink">{s.client?.name}</span>,
+    },
+    {
+      key: "product",
+      header: "Продукт",
+      render: (s) => (
+        <span className="flex items-center gap-1.5 text-ink-muted">
+          {s.licenseProduct?.name}
+          {!s.taxable && <Badge tone="reserve">на карту</Badge>}
+        </span>
+      ),
+    },
+    {
+      key: "price",
+      header: "Цена",
+      align: "right",
+      render: (s) => <span className="font-medium text-ink">{formatMoney(s.price)}</span>,
+    },
+    {
+      key: "duration",
+      header: "Срок",
+      align: "right",
+      hideBelow: "lg",
+      render: (s) => <span className="text-ink-muted">{s.durationMonths} мес.</span>,
+    },
+    {
+      key: "next",
+      header: "Платёж",
+      nowrap: true,
+      render: (s) => (
+        <Badge tone={dueTone(s.nextBillingDate)}>
+          <CalendarClock className="size-3" strokeWidth={1.9} />
+          {formatDate(s.nextBillingDate)}
+        </Badge>
+      ),
+    },
+    {
+      key: "status",
+      header: "Статус",
+      hideBelow: "lg",
+      render: (s) => (
+        <SelectCompact value={s.status} onChange={(e) => handleStatusChange(s.id, e.target.value as Subscription["status"])}>
+          <option value="ACTIVE">{statusLabel.ACTIVE}</option>
+          <option value="PAUSED">{statusLabel.PAUSED}</option>
+          <option value="CANCELLED">{statusLabel.CANCELLED}</option>
+        </SelectCompact>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (s) => (
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            size="sm"
+            variant="primary"
+            icon={RefreshCw}
+            loading={busyId === s.id}
+            disabled={s.status !== "ACTIVE"}
+            onClick={() => handleBill(s)}
+          >
+            Продлить
+          </Button>
+          <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(s)} />
+          <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(s)} className="hover:text-expense" />
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <div className="flex flex-col gap-5 sm:gap-6">
+      <PageHeader
+        title="Подписки на лицензии"
+        description="Сумма от клиента → доля вендора списывается расходом → с остатка откладывается резерв на налог → остальное свободно. Кнопка «Продлить» создаёт операции за новый период и подтверждает сумму."
+        actions={
+          <Button variant="primary" icon={Plus} onClick={startCreate}>
+            Новая подписка
+          </Button>
+        }
+      />
 
       {monthSummary && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
           <StatCard
             label="Общая сумма подписок в этом месяце"
             value={formatMoney(monthSummary.totalExpected)}
-            hint="уже продлено + ожидается до конца месяца"
+            icon={Wallet}
+            wide
+            chart={
+              <div className="flex h-full flex-col justify-center gap-1.5">
+                <div className="flex h-1.5 overflow-hidden rounded-full bg-raised">
+                  <div className="bg-income" style={{ width: `${renewedShare}%` }} />
+                  <div className="flex-1 bg-accent/35" />
+                </div>
+                <div className="flex justify-between text-[10px] text-ink-subtle">
+                  <span>продлено {renewedShare}%</span>
+                  <span>осталось {100 - renewedShare}%</span>
+                </div>
+              </div>
+            }
           />
           <StatCard
             label="Уже продлено в этом месяце"
             value={formatMoney(monthSummary.renewedAmount)}
+            tone="income"
+            icon={CreditCard}
           />
           <StatCard
             label="Чистая прибыль с продлённых"
             value={formatMoney(monthSummary.renewedNetProfit)}
-            hint="доход минус доля вендора и налоговый резерв, уже по факту"
+            tone="income"
+            icon={TrendingUp}
+            hint="Доход минус доля вендора и налоговый резерв, уже по факту"
           />
           <StatCard
             label="Ожидаемая прибыль до конца месяца"
             value={formatMoney(monthSummary.pendingNetProfit)}
-            hint="только по подпискам, которые ещё нужно продлить в этом месяце, за вычетом вендора и налога"
+            tone="accent"
+            icon={CalendarClock}
+            hint="Только по подпискам, которые ещё нужно продлить в этом месяце"
           />
         </div>
       )}
 
-      {showForm && (
-        <Card>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {editingId ? (
-              <div className="text-sm text-slate-500 sm:col-span-3">
-                {editingSubscription?.client?.name} · {editingSubscription?.licenseProduct?.name}
-                <span className="ml-1 text-xs text-slate-400">(клиента и продукт нельзя изменить — создайте новую подписку)</span>
-              </div>
-            ) : (
-              <>
-                <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={clientId} onChange={(e) => { setClientId(e.target.value); setProjectId(""); }} required>
-                  <option value="">Клиент…</option>
-                  {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-                <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={projectId} onChange={(e) => setProjectId(e.target.value)} disabled={!clientId}>
-                  <option value="">Без привязки к проекту</option>
-                  {projectsForClient.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-                <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={licenseProductId} onChange={(e) => onSelectProduct(e.target.value)} required>
-                  <option value="">Продукт…</option>
-                  {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-              </>
-            )}
-            <input type="number" step="0.01" className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Цена" value={price} onChange={(e) => setPrice(e.target.value)} required />
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-400">Срок, мес.</label>
-              <input type="number" min="1" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={durationMonths} onChange={(e) => setDurationMonths(e.target.value)} required />
-            </div>
-            {editingId ? (
-              <>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs text-slate-400">Следующий платёж</label>
-                  <input type="date" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={nextBillingDate} onChange={(e) => setNextBillingDate(e.target.value)} required />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs text-slate-400">Статус</label>
-                  <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={status} onChange={(e) => setStatus(e.target.value as Subscription["status"])}>
-                    <option value="ACTIVE">{statusLabel.ACTIVE}</option>
-                    <option value="PAUSED">{statusLabel.PAUSED}</option>
-                    <option value="CANCELLED">{statusLabel.CANCELLED}</option>
-                  </select>
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400">Дата начала</label>
-                <input type="date" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
-              </div>
-            )}
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-400">Доля вендора, %</label>
-              <input type="number" min="0" max="100" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={vendorSharePercent} onChange={(e) => setVendorSharePercent(e.target.value)} required />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={taxable} onChange={(e) => setTaxable(e.target.checked)} />
-              Облагается налогом
-            </label>
-            {!editingId && selectedProduct && (
-              <div className="text-xs text-slate-400 sm:col-span-3">
-                По умолчанию у продукта: {formatMoney(selectedProduct.defaultPrice)}, {selectedProduct.defaultDurationMonths} мес., вендору {selectedProduct.defaultVendorSharePercent}%
-              </div>
-            )}
-            <button type="submit" className="w-fit rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 sm:col-span-3">
-              {editingId ? "Сохранить изменения" : "Создать и выставить первый платёж"}
-            </button>
-          </form>
-        </Card>
-      )}
+      <ListCard>
+        <DataTable
+          rows={subscriptions}
+          columns={columns}
+          getRowKey={(s) => s.id}
+          renderCard={(s) => (
+            <RowCard
+              title={s.client?.name ?? "—"}
+              subtitle={s.licenseProduct?.name}
+              value={formatMoney(s.price)}
+              meta={
+                <>
+                  <Badge tone={dueTone(s.nextBillingDate)}>
+                    <CalendarClock className="size-3" strokeWidth={1.9} />
+                    {formatDate(s.nextBillingDate)}
+                  </Badge>
+                  <StatusBadge label={statusLabel[s.status]} tone={statusTone[s.status]} />
+                  {!s.taxable && <Badge tone="reserve">на карту</Badge>}
+                  <MetaItem label="Срок">{s.durationMonths} мес.</MetaItem>
+                </>
+              }
+              actions={
+                <>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    icon={RefreshCw}
+                    loading={busyId === s.id}
+                    disabled={s.status !== "ACTIVE"}
+                    onClick={() => handleBill(s)}
+                  >
+                    Продлить
+                  </Button>
+                  <Button size="sm" variant="ghost" icon={Pencil} onClick={() => startEdit(s)}>
+                    Изменить
+                  </Button>
+                  <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(s)}>
+                    Удалить
+                  </Button>
+                </>
+              }
+            />
+          )}
+          empty={
+            <EmptyState
+              icon={RefreshCw}
+              title="Подписок пока нет"
+              description="Создайте первую — система сразу выставит платёж за начальный период."
+              action={
+                <Button variant="primary" icon={Plus} onClick={startCreate}>
+                  Новая подписка
+                </Button>
+              }
+            />
+          }
+        />
+      </ListCard>
 
-      <Card>
-        <div className="overflow-x-auto -mx-4 px-4">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-slate-500">
-                <th className="py-2">Клиент</th>
-                <th className="py-2">Продукт</th>
-                <th className="py-2">Цена</th>
-                <th className="hidden py-2 sm:table-cell">Срок</th>
-                <th className="py-2">Следующий платёж</th>
-                <th className="hidden py-2 md:table-cell">Статус</th>
-                <th className="py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {subscriptions.map((s) => (
-                <tr key={s.id} className="border-b border-slate-100">
-                  <td className="py-2">{s.client?.name}</td>
-                  <td className="py-2">
-                    {s.licenseProduct?.name}
-                    {!s.taxable && <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700">на карту</span>}
-                  </td>
-                  <td className="py-2">{formatMoney(s.price)}</td>
-                  <td className="hidden py-2 sm:table-cell">{s.durationMonths} мес.</td>
-                  <td className="py-2">{formatDate(s.nextBillingDate)}</td>
-                  <td className="hidden py-2 md:table-cell">
-                    <select
-                      className="rounded-md border border-slate-300 px-2 py-1 text-xs"
-                      value={s.status}
-                      onChange={(e) => handleStatusChange(s.id, e.target.value as Subscription["status"])}
-                    >
-                      <option value="ACTIVE">{statusLabel.ACTIVE}</option>
-                      <option value="PAUSED">{statusLabel.PAUSED}</option>
-                      <option value="CANCELLED">{statusLabel.CANCELLED}</option>
-                    </select>
-                  </td>
-                  <td className="py-2">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <button
-                        onClick={() => handleBill(s)}
-                        disabled={busyId === s.id || s.status !== "ACTIVE"}
-                        className="rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-40"
-                      >
-                        {busyId === s.id ? "…" : "Продлить"}
-                      </button>
-                      <button onClick={() => startEdit(s)} className="text-xs font-medium text-slate-600 hover:underline">
-                        Редактировать
-                      </button>
-                      <button onClick={() => handleDelete(s)} className="text-xs font-medium text-red-600 hover:underline">
-                        Удалить
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {subscriptions.length === 0 && (
-                <tr><td colSpan={7} className="py-3 text-center text-slate-400">Подписок пока нет</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <Modal
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        title={editingId ? "Редактирование подписки" : "Новая подписка"}
+        description={
+          editingId
+            ? "Клиента и продукт изменить нельзя — для другого продукта создайте новую подписку."
+            : "Первый платёж будет выставлен сразу после создания."
+        }
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setFormOpen(false)}>
+              Отмена
+            </Button>
+            <Button variant="primary" form="subscription-form" type="submit" loading={saving}>
+              {editingId ? "Сохранить" : "Создать и выставить платёж"}
+            </Button>
+          </>
+        }
+      >
+        <form id="subscription-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-3.5 pb-2 sm:grid-cols-2">
+          {editingId ? (
+            <div className="sm:col-span-2">
+              <ReadonlyValue
+                label="Клиент и продукт"
+                value={`${editingSubscription?.client?.name} · ${editingSubscription?.licenseProduct?.name}`}
+              />
+            </div>
+          ) : (
+            <>
+              <Field label="Клиент" className="sm:col-span-2">
+                <Select
+                  value={clientId}
+                  onChange={(e) => {
+                    setClientId(e.target.value);
+                    setProjectId("");
+                  }}
+                  required
+                >
+                  <option value="">Выберите клиента…</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Проект">
+                <Select value={projectId} onChange={(e) => setProjectId(e.target.value)} disabled={!clientId}>
+                  <option value="">Без привязки к проекту</option>
+                  {projectsForClient.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Продукт">
+                <Select value={licenseProductId} onChange={(e) => onSelectProduct(e.target.value)} required>
+                  <option value="">Выберите продукт…</option>
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </>
+          )}
+
+          <Field label="Цена">
+            <Input
+              type="number"
+              step="0.01"
+              inputMode="decimal"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Срок, мес.">
+            <Input
+              type="number"
+              min="1"
+              inputMode="numeric"
+              value={durationMonths}
+              onChange={(e) => setDurationMonths(e.target.value)}
+              required
+            />
+          </Field>
+
+          {editingId ? (
+            <>
+              <Field label="Следующий платёж">
+                <Input type="date" value={nextBillingDate} onChange={(e) => setNextBillingDate(e.target.value)} required />
+              </Field>
+              <Field label="Статус">
+                <Select value={status} onChange={(e) => setStatus(e.target.value as Subscription["status"])}>
+                  <option value="ACTIVE">{statusLabel.ACTIVE}</option>
+                  <option value="PAUSED">{statusLabel.PAUSED}</option>
+                  <option value="CANCELLED">{statusLabel.CANCELLED}</option>
+                </Select>
+              </Field>
+            </>
+          ) : (
+            <Field label="Дата начала">
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+            </Field>
+          )}
+
+          <Field label="Доля вендора, %">
+            <Input
+              type="number"
+              min="0"
+              max="100"
+              inputMode="numeric"
+              value={vendorSharePercent}
+              onChange={(e) => setVendorSharePercent(e.target.value)}
+              required
+            />
+          </Field>
+
+          <div className="flex items-end pb-1 sm:col-span-2">
+            <Checkbox label="Облагается налогом" checked={taxable} onChange={(e) => setTaxable(e.target.checked)} />
+          </div>
+
+          {!editingId && selectedProduct && (
+            <p className="text-xs text-ink-subtle sm:col-span-2">
+              По умолчанию у продукта: {formatMoney(selectedProduct.defaultPrice)}, {selectedProduct.defaultDurationMonths} мес.,
+              вендору {String(selectedProduct.defaultVendorSharePercent)}%
+            </p>
+          )}
+        </form>
+      </Modal>
     </div>
   );
 }

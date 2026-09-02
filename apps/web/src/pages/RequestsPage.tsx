@@ -1,7 +1,26 @@
 import { FormEvent, useEffect, useState } from "react";
+import { Inbox, Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "../api/client";
 import { Project, RequestTicket } from "../api/types";
-import { Card } from "../components/Card";
+import {
+  Badge,
+  Button,
+  ListCard,
+  Column,
+  DataTable,
+  EmptyState,
+  Field,
+  IconButton,
+  Input,
+  MetaItem,
+  Modal,
+  PageHeader,
+  RowCard,
+  Select,
+  SelectCompact,
+  useUi,
+  type BadgeTone,
+} from "../components/ui";
 
 const emptyForm = {
   projectId: "",
@@ -10,10 +29,31 @@ const emptyForm = {
   priority: "MEDIUM" as RequestTicket["priority"],
 };
 
+const statusLabel: Record<RequestTicket["status"], string> = {
+  OPEN: "Открыта",
+  IN_PROGRESS: "В работе",
+  DONE: "Выполнена",
+  CANCELLED: "Отменена",
+};
+
+const priorityLabel: Record<RequestTicket["priority"], string> = {
+  LOW: "Низкий",
+  MEDIUM: "Средний",
+  HIGH: "Высокий",
+};
+
+const priorityTone: Record<RequestTicket["priority"], BadgeTone> = {
+  LOW: "neutral",
+  MEDIUM: "accent",
+  HIGH: "expense",
+};
+
 export function RequestsPage() {
+  const ui = useUi();
   const [requests, setRequests] = useState<RequestTicket[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [showForm, setShowForm] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
 
@@ -29,7 +69,7 @@ export function RequestsPage() {
   function startCreate() {
     setForm(emptyForm);
     setEditingId(null);
-    setShowForm(true);
+    setFormOpen(true);
   }
 
   function startEdit(r: RequestTicket) {
@@ -40,29 +80,34 @@ export function RequestsPage() {
       priority: r.priority,
     });
     setEditingId(r.id);
-    setShowForm(true);
-  }
-
-  function cancel() {
-    setShowForm(false);
-    setEditingId(null);
+    setFormOpen(true);
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    setSaving(true);
     const payload = {
       projectId: form.projectId,
       title: form.title,
       description: form.description || undefined,
       priority: form.priority,
     };
-    if (editingId) {
-      await api.patch(`/requests/${editingId}`, payload);
-    } else {
-      await api.post("/requests", payload);
+    try {
+      if (editingId) {
+        await api.patch(`/requests/${editingId}`, payload);
+        ui.toast("Заявка обновлена", "success");
+      } else {
+        await api.post("/requests", payload);
+        ui.toast("Заявка создана", "success");
+      }
+      setFormOpen(false);
+      setEditingId(null);
+      load();
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось сохранить заявку", "error");
+    } finally {
+      setSaving(false);
     }
-    cancel();
-    load();
   }
 
   async function updateStatus(id: string, status: RequestTicket["status"]) {
@@ -71,95 +116,166 @@ export function RequestsPage() {
   }
 
   async function handleDelete(r: RequestTicket) {
-    if (!confirm(`Удалить заявку «${r.title}»? Связанные записи учёта часов останутся, но потеряют привязку к заявке.`)) return;
+    const confirmed = await ui.confirm({
+      title: `Удалить заявку «${r.title}»?`,
+      message: "Записи учёта часов останутся, но потеряют привязку к заявке.",
+      confirmLabel: "Удалить",
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       await api.delete(`/requests/${r.id}`);
+      ui.toast("Заявка удалена", "success");
       load();
     } catch (err: any) {
-      alert(err.response?.data?.error ?? "Не удалось удалить заявку");
+      ui.toast(err.response?.data?.error ?? "Не удалось удалить заявку", "error");
     }
   }
 
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Заявки клиентов</h1>
-        <button onClick={() => (showForm ? cancel() : startCreate())} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
-          {showForm ? "Отмена" : "+ Новая заявка"}
-        </button>
-      </div>
+  const projectName = (r: RequestTicket) =>
+    r.project?.id ? projects.find((p) => p.id === r.project?.id)?.name ?? "—" : "—";
 
-      {showForm && (
-        <Card>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })} required>
-              <option value="">Проект…</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Название заявки" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
-            <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as RequestTicket["priority"] })}>
-              <option value="LOW">Низкий приоритет</option>
-              <option value="MEDIUM">Средний приоритет</option>
-              <option value="HIGH">Высокий приоритет</option>
-            </select>
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-3" placeholder="Описание" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-            <button type="submit" className="w-fit rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
-              {editingId ? "Сохранить изменения" : "Сохранить"}
-            </button>
-          </form>
-        </Card>
-      )}
+  const statusSelect = (r: RequestTicket) => (
+    <SelectCompact value={r.status} onChange={(e) => updateStatus(r.id, e.target.value as RequestTicket["status"])}>
+      <option value="OPEN">{statusLabel.OPEN}</option>
+      <option value="IN_PROGRESS">{statusLabel.IN_PROGRESS}</option>
+      <option value="DONE">{statusLabel.DONE}</option>
+      <option value="CANCELLED">{statusLabel.CANCELLED}</option>
+    </SelectCompact>
+  );
 
-      <Card>
-        <div className="overflow-x-auto -mx-4 px-4">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-slate-500">
-              <th className="py-2">Заявка</th>
-              <th className="hidden py-2 sm:table-cell">Проект</th>
-              <th className="hidden py-2 md:table-cell">Приоритет</th>
-              <th className="py-2">Часы</th>
-              <th className="py-2">Статус</th>
-              <th className="py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {requests.map((r) => (
-              <tr key={r.id} className="border-b border-slate-100">
-                <td className="py-2">{r.title}</td>
-                <td className="hidden py-2 sm:table-cell">{r.project?.id ? projects.find((p) => p.id === r.project?.id)?.name : "—"}</td>
-                <td className="hidden py-2 md:table-cell">{r.priority}</td>
-                <td className="py-2">{r.totalHours ?? 0} ч</td>
-                <td className="py-2">
-                  <select
-                    className="rounded-md border border-slate-300 px-2 py-1 text-xs"
-                    value={r.status}
-                    onChange={(e) => updateStatus(r.id, e.target.value as RequestTicket["status"])}
-                  >
-                    <option value="OPEN">Открыта</option>
-                    <option value="IN_PROGRESS">В работе</option>
-                    <option value="DONE">Выполнена</option>
-                    <option value="CANCELLED">Отменена</option>
-                  </select>
-                </td>
-                <td className="py-2">
-                  <div className="flex gap-3">
-                    <button onClick={() => startEdit(r)} className="text-xs font-medium text-slate-600 hover:underline">
-                      Редактировать
-                    </button>
-                    <button onClick={() => handleDelete(r)} className="text-xs font-medium text-red-600 hover:underline">
-                      Удалить
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+  const columns: Column<RequestTicket>[] = [
+    { key: "title", header: "Заявка", render: (r) => <span className="font-medium text-ink">{r.title}</span> },
+    { key: "project", header: "Проект", hideBelow: "md", render: (r) => <span className="text-ink-muted">{projectName(r)}</span> },
+    {
+      key: "priority",
+      header: "Приоритет",
+      hideBelow: "lg",
+      render: (r) => <Badge tone={priorityTone[r.priority]}>{priorityLabel[r.priority]}</Badge>,
+    },
+    {
+      key: "hours",
+      header: "Часы",
+      align: "right",
+      render: (r) => <span className="text-ink-muted">{r.totalHours ?? 0} ч</span>,
+    },
+    { key: "status", header: "Статус", render: statusSelect },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (r) => (
+        <div className="flex items-center justify-end gap-1">
+          <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(r)} />
+          <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(r)} className="hover:text-expense" />
         </div>
-      </Card>
+      ),
+    },
+  ];
+
+  return (
+    <div className="flex flex-col gap-5 sm:gap-6">
+      <PageHeader
+        title="Заявки клиентов"
+        description="Обращения по проектам: на них списываются часы, а статус показывает, что ещё в работе."
+        actions={
+          <Button variant="primary" icon={Plus} onClick={startCreate}>
+            Новая заявка
+          </Button>
+        }
+      />
+
+      <ListCard>
+        <DataTable
+          rows={requests}
+          columns={columns}
+          getRowKey={(r) => r.id}
+          renderCard={(r) => (
+            <RowCard
+              title={r.title}
+              subtitle={projectName(r)}
+              value={`${r.totalHours ?? 0} ч`}
+              meta={
+                <>
+                  <Badge tone={priorityTone[r.priority]}>{priorityLabel[r.priority]}</Badge>
+                  <MetaItem label="Статус">{statusLabel[r.status]}</MetaItem>
+                </>
+              }
+              actions={
+                <>
+                  <div className="mr-auto">{statusSelect(r)}</div>
+                  <Button size="sm" variant="ghost" icon={Pencil} onClick={() => startEdit(r)}>
+                    Изменить
+                  </Button>
+                  <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(r)}>
+                    Удалить
+                  </Button>
+                </>
+              }
+            />
+          )}
+          empty={
+            <EmptyState
+              icon={Inbox}
+              title="Заявок пока нет"
+              description="Заведите заявку по проекту, чтобы списывать на неё часы."
+              action={
+                <Button variant="primary" icon={Plus} onClick={startCreate}>
+                  Новая заявка
+                </Button>
+              }
+            />
+          }
+        />
+      </ListCard>
+
+      <Modal
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        title={editingId ? "Редактирование заявки" : "Новая заявка"}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setFormOpen(false)}>
+              Отмена
+            </Button>
+            <Button variant="primary" form="request-form" type="submit" loading={saving}>
+              Сохранить
+            </Button>
+          </>
+        }
+      >
+        <form id="request-form" onSubmit={handleSubmit} className="flex flex-col gap-3.5 pb-2">
+          <Field label="Проект">
+            <Select value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })} required>
+              <option value="">Выберите проект…</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label="Название заявки">
+            <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
+          </Field>
+
+          <Field label="Приоритет">
+            <Select
+              value={form.priority}
+              onChange={(e) => setForm({ ...form, priority: e.target.value as RequestTicket["priority"] })}
+            >
+              <option value="LOW">{priorityLabel.LOW}</option>
+              <option value="MEDIUM">{priorityLabel.MEDIUM}</option>
+              <option value="HIGH">{priorityLabel.HIGH}</option>
+            </Select>
+          </Field>
+
+          <Field label="Описание">
+            <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </Field>
+        </form>
+      </Modal>
     </div>
   );
 }
