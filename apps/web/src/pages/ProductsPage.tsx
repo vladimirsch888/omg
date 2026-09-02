@@ -79,6 +79,16 @@ export function ProductsPage() {
     load();
   }
 
+  async function handleDelete(p: LicenseProduct) {
+    if (!confirm(`Удалить продукт «${p.name}»?`)) return;
+    try {
+      await api.delete(`/license-products/${p.id}`);
+      load();
+    } catch (err: any) {
+      alert(err.response?.data?.error ?? "Не удалось удалить продукт");
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -152,9 +162,14 @@ export function ProductsPage() {
                     </button>
                   </td>
                   <td className="py-2">
-                    <button onClick={() => startEdit(p)} className="text-xs font-medium text-slate-600 hover:underline">
-                      Редактировать
-                    </button>
+                    <div className="flex gap-3">
+                      <button onClick={() => startEdit(p)} className="text-xs font-medium text-slate-600 hover:underline">
+                        Редактировать
+                      </button>
+                      <button onClick={() => handleDelete(p)} className="text-xs font-medium text-red-600 hover:underline">
+                        Удалить
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

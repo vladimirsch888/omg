@@ -74,6 +74,16 @@ export function ClientsPage() {
     load();
   }
 
+  async function handleDelete(c: Client) {
+    if (!confirm(`Удалить клиента «${c.name}»? Все его проекты, заявки, часы и подписки будут удалены безвозвратно.`)) return;
+    try {
+      await api.delete(`/clients/${c.id}`);
+      load();
+    } catch (err: any) {
+      alert(err.response?.data?.error ?? "Не удалось удалить клиента");
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -134,9 +144,14 @@ export function ClientsPage() {
                 <td className="py-2">{c.status}</td>
                 <td className="py-2">{c.projectsCount ?? 0}</td>
                 <td className="py-2">
-                  <button onClick={() => startEdit(c)} className="text-xs font-medium text-slate-600 hover:underline">
-                    Редактировать
-                  </button>
+                  <div className="flex gap-3">
+                    <button onClick={() => startEdit(c)} className="text-xs font-medium text-slate-600 hover:underline">
+                      Редактировать
+                    </button>
+                    <button onClick={() => handleDelete(c)} className="text-xs font-medium text-red-600 hover:underline">
+                      Удалить
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

@@ -70,6 +70,16 @@ export function RequestsPage() {
     load();
   }
 
+  async function handleDelete(r: RequestTicket) {
+    if (!confirm(`Удалить заявку «${r.title}»? Связанные записи учёта часов останутся, но потеряют привязку к заявке.`)) return;
+    try {
+      await api.delete(`/requests/${r.id}`);
+      load();
+    } catch (err: any) {
+      alert(err.response?.data?.error ?? "Не удалось удалить заявку");
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -135,9 +145,14 @@ export function RequestsPage() {
                   </select>
                 </td>
                 <td className="py-2">
-                  <button onClick={() => startEdit(r)} className="text-xs font-medium text-slate-600 hover:underline">
-                    Редактировать
-                  </button>
+                  <div className="flex gap-3">
+                    <button onClick={() => startEdit(r)} className="text-xs font-medium text-slate-600 hover:underline">
+                      Редактировать
+                    </button>
+                    <button onClick={() => handleDelete(r)} className="text-xs font-medium text-red-600 hover:underline">
+                      Удалить
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

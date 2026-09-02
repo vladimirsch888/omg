@@ -73,6 +73,16 @@ export function TimeTrackingPage() {
     load();
   }
 
+  async function handleDelete(entry: TimeEntry) {
+    if (!confirm(`Удалить запись на ${entry.hours} ч?`)) return;
+    try {
+      await api.delete(`/time-entries/${entry.id}`);
+      load();
+    } catch (err: any) {
+      alert(err.response?.data?.error ?? "Не удалось удалить запись");
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -129,9 +139,14 @@ export function TimeTrackingPage() {
                 <td className="hidden py-2 md:table-cell">{e.user?.name}</td>
                 <td className="py-2 font-medium">{e.hours} ч</td>
                 <td className="py-2">
-                  <button onClick={() => startEdit(e)} className="text-xs font-medium text-slate-600 hover:underline">
-                    Редактировать
-                  </button>
+                  <div className="flex gap-3">
+                    <button onClick={() => startEdit(e)} className="text-xs font-medium text-slate-600 hover:underline">
+                      Редактировать
+                    </button>
+                    <button onClick={() => handleDelete(e)} className="text-xs font-medium text-red-600 hover:underline">
+                      Удалить
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

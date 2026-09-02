@@ -88,6 +88,16 @@ export function OperationsPage() {
     load();
   }
 
+  async function handleDelete(o: Operation) {
+    if (!confirm(`Удалить операцию на сумму ${formatMoney(o.amount)}?`)) return;
+    try {
+      await api.delete(`/operations/${o.id}`);
+      load();
+    } catch (err: any) {
+      alert(err.response?.data?.error ?? "Не удалось удалить операцию");
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -169,9 +179,14 @@ export function OperationsPage() {
                   {o.type === "INCOME" ? "+" : "-"}{formatMoney(o.amount)}
                 </td>
                 <td className="py-2">
-                  <button onClick={() => startEdit(o)} className="text-xs font-medium text-slate-600 hover:underline">
-                    Редактировать
-                  </button>
+                  <div className="flex gap-3">
+                    <button onClick={() => startEdit(o)} className="text-xs font-medium text-slate-600 hover:underline">
+                      Редактировать
+                    </button>
+                    <button onClick={() => handleDelete(o)} className="text-xs font-medium text-red-600 hover:underline">
+                      Удалить
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
