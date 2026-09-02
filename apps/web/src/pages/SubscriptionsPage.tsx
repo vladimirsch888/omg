@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api/client";
-import { Client, LicenseProduct, Project, Subscription } from "../api/types";
-import { Card } from "../components/Card";
+import { Client, LicenseProduct, Project, Subscription, SubscriptionMonthSummary } from "../api/types";
+import { Card, StatCard } from "../components/Card";
 import { formatMoney, formatDate, toDateInputValue } from "../utils/format";
 
 const statusLabel: Record<Subscription["status"], string> = {
@@ -12,6 +12,7 @@ const statusLabel: Record<Subscription["status"], string> = {
 
 export function SubscriptionsPage() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [monthSummary, setMonthSummary] = useState<SubscriptionMonthSummary | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [products, setProducts] = useState<LicenseProduct[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -33,6 +34,7 @@ export function SubscriptionsPage() {
 
   function load() {
     api.get<Subscription[]>("/subscriptions").then((res) => setSubscriptions(res.data));
+    api.get<SubscriptionMonthSummary>("/subscriptions/month-summary").then((res) => setMonthSummary(res.data));
   }
 
   useEffect(() => {
@@ -167,6 +169,30 @@ export function SubscriptionsPage() {
         цена выросла или упала — новая сумма закрепится и для следующих продлений) и создаст операции
         за новый период одной кнопкой, без повторного заполнения формы.
       </p>
+
+      {monthSummary && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="Общая сумма подписок в этом месяце"
+            value={formatMoney(monthSummary.totalExpected)}
+            hint="уже продлено + ожидается до конца месяца"
+          />
+          <StatCard
+            label="Уже продлено в этом месяце"
+            value={formatMoney(monthSummary.renewedAmount)}
+          />
+          <StatCard
+            label="Чистая прибыль с продлённых"
+            value={formatMoney(monthSummary.renewedNetProfit)}
+            hint="доход минус доля вендора, уже по факту"
+          />
+          <StatCard
+            label="Ожидаемая прибыль до конца месяца"
+            value={formatMoney(monthSummary.projectedNetProfit)}
+            hint="факт + прогноз по неоплаченным подпискам"
+          />
+        </div>
+      )}
 
       {showForm && (
         <Card>

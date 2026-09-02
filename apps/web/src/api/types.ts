@@ -197,6 +197,13 @@ export interface CashPosition {
   taxReservePercent: number;
 }
 
+export interface SubscriptionMonthSummary {
+  totalExpected: number;
+  renewedAmount: number;
+  renewedNetProfit: number;
+  projectedNetProfit: number;
+}
+
 export interface User {
   id: string;
   email: string;

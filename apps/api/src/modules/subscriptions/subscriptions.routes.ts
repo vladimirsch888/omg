@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../prisma";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { AppError } from "../../utils/errors";
-import { billSubscription } from "./subscriptions.service";
+import { billSubscription, getMonthSummary } from "./subscriptions.service";
 import type { AppEnv } from "../../types/hono";
 
 export const subscriptionsRouter = new Hono<AppEnv>();
@@ -25,6 +25,13 @@ subscriptionsRouter.get("/", async (c) => {
     orderBy: { nextBillingDate: "asc" },
   });
   return c.json(subscriptions);
+});
+
+// Must come before "/:id" so "month-summary" isn't matched as an id.
+subscriptionsRouter.get("/month-summary", async (c) => {
+  const auth = c.get("auth");
+  const summary = await getMonthSummary(auth.organizationId);
+  return c.json(summary);
 });
 
 subscriptionsRouter.get("/:id", async (c) => {
