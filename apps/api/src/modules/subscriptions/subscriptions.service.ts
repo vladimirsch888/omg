@@ -113,6 +113,12 @@ export async function billSubscription(
  * counts as still expected). A subscription can't appear in both buckets:
  * renewing always pushes nextBillingDate at least one month out, so once
  * billed this month it drops out of "pending" on its own.
+ *
+ * "Net profit" here is the waterfall's `spendable` (see
+ * apps/api/src/modules/finance/waterfall.ts): the incoming amount minus
+ * BOTH the vendor's cut (vendorSharePercent) AND the tax reserve
+ * (TAX_RESERVE_PERCENT, skipped only when taxable=false, e.g. an untaxed
+ * direct "card" payment) — not just the vendor cut.
  */
 export async function getMonthSummary(organizationId: string) {
   const now = new Date();
@@ -124,9 +130,10 @@ export async function getMonthSummary(organizationId: string) {
       where: {
         organizationId,
         subscriptionId: { not: null },
+        type: "INCOME",
         accrualDate: { gte: monthStart, lt: monthEnd },
       },
-      select: { type: true, amount: true },
+      select: { amount: true, vendorSharePercent: true, taxable: true },
     }),
     prisma.subscription.findMany({
       where: {
@@ -142,21 +149,16 @@ export async function getMonthSummary(organizationId: string) {
   let renewedNetProfit = 0;
   for (const op of billedThisMonth) {
     const amount = Number(op.amount);
-    if (op.type === "INCOME") {
-      renewedAmount += amount;
-      renewedNetProfit += amount;
-    } else {
-      renewedNetProfit -= amount;
-    }
+    renewedAmount += amount;
+    renewedNetProfit += computeWaterfall(amount, Number(op.vendorSharePercent), op.taxable).spendable;
   }
 
   let pendingAmount = 0;
   let pendingNetProfit = 0;
   for (const s of pendingSubscriptions) {
     const price = Number(s.price);
-    const { vendorCost } = computeWaterfall(price, Number(s.vendorSharePercent), s.taxable);
     pendingAmount += price;
-    pendingNetProfit += price - vendorCost;
+    pendingNetProfit += computeWaterfall(price, Number(s.vendorSharePercent), s.taxable).spendable;
   }
 
   return {

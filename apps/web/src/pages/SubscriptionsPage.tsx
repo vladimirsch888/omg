@@ -184,12 +184,12 @@ export function SubscriptionsPage() {
           <StatCard
             label="Чистая прибыль с продлённых"
             value={formatMoney(monthSummary.renewedNetProfit)}
-            hint="доход минус доля вендора, уже по факту"
+            hint="доход минус доля вендора и налоговый резерв, уже по факту"
           />
           <StatCard
             label="Ожидаемая прибыль до конца месяца"
             value={formatMoney(monthSummary.projectedNetProfit)}
-            hint="факт + прогноз по неоплаченным подпискам"
+            hint="факт + прогноз по неоплаченным подпискам, за вычетом вендора и налога"
           />
         </div>
       )}
