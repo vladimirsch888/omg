@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { Client, LicenseProduct, Project, Sale } from "../api/types";
 import { Card } from "../components/Card";
-import { formatMoney, formatDate, addWorkingDays } from "../utils/format";
+import { formatMoney, formatDate, addWorkingDays, toDateInputValue } from "../utils/format";
 
 const emptyForm = {
   clientId: "",
@@ -26,6 +26,7 @@ export function SalesPage() {
   const [products, setProducts] = useState<LicenseProduct[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
 
   function load() {
@@ -70,18 +71,56 @@ export function SalesPage() {
     setForm({ ...form, workDays, workEndDate: computeWorkEndDate(form.saleDate, workDays) });
   }
 
+  function startCreate() {
+    setForm(emptyForm);
+    setEditingId(null);
+    setShowForm(true);
+  }
+
+  function startEdit(sale: Sale) {
+    setForm({
+      clientId: sale.clientId,
+      projectId: sale.projectId ?? "",
+      licenseProductId: sale.licenseProductId,
+      amount: String(sale.amount),
+      saleDate: toDateInputValue(sale.saleDate),
+      // The original working-days count isn't stored — only the resulting
+      // date is; leave it blank so it isn't misread as freshly recomputed.
+      workDays: "",
+      workEndDate: toDateInputValue(sale.workEndDate),
+    });
+    setEditingId(sale.id);
+    setShowForm(true);
+  }
+
+  function cancel() {
+    setShowForm(false);
+    setEditingId(null);
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    await api.post("/sales", {
+    const payload = {
       clientId: form.clientId,
       projectId: form.projectId || undefined,
       licenseProductId: form.licenseProductId,
       amount: Number(form.amount),
       saleDate: new Date(form.saleDate).toISOString(),
-      workEndDate: selectedProduct?.type === "WORK" && form.workEndDate ? new Date(form.workEndDate).toISOString() : undefined,
-    });
-    setForm(emptyForm);
-    setShowForm(false);
+      // When editing, explicitly clear a stale work end date if the product
+      // was switched away from WORK; on create there's nothing to clear.
+      workEndDate:
+        selectedProduct?.type === "WORK" && form.workEndDate
+          ? new Date(form.workEndDate).toISOString()
+          : editingId
+          ? null
+          : undefined,
+    };
+    if (editingId) {
+      await api.patch(`/sales/${editingId}`, payload);
+    } else {
+      await api.post("/sales", payload);
+    }
+    cancel();
     load();
   }
 
@@ -99,7 +138,7 @@ export function SalesPage() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Продажи</h1>
-        <button onClick={() => setShowForm(!showForm)} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
+        <button onClick={() => (showForm ? cancel() : startCreate())} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
           {showForm ? "Отмена" : "+ Новая продажа"}
         </button>
       </div>
@@ -149,7 +188,7 @@ export function SalesPage() {
               </div>
             )}
             <button type="submit" className="w-fit rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 sm:col-span-3">
-              Провести продажу
+              {editingId ? "Сохранить изменения" : "Провести продажу"}
             </button>
           </form>
         </Card>
@@ -181,9 +220,14 @@ export function SalesPage() {
                   </td>
                   <td className="py-2 font-medium text-green-600">{formatMoney(s.amount)}</td>
                   <td className="py-2">
-                    <button onClick={() => handleDelete(s)} className="text-xs font-medium text-red-600 hover:underline">
-                      Удалить
-                    </button>
+                    <div className="flex gap-3">
+                      <button onClick={() => startEdit(s)} className="text-xs font-medium text-slate-600 hover:underline">
+                        Редактировать
+                      </button>
+                      <button onClick={() => handleDelete(s)} className="text-xs font-medium text-red-600 hover:underline">
+                        Удалить
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../prisma";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { AppError } from "../../utils/errors";
-import { recordSale } from "./sales.service";
+import { recordSale, updateSale } from "./sales.service";
 import type { AppEnv } from "../../types/hono";
 
 export const salesRouter = new Hono<AppEnv>();
@@ -91,6 +91,74 @@ salesRouter.post("/", async (c) => {
   });
 
   return c.json(result, 201);
+});
+
+const updateSchema = z.object({
+  clientId: z.string().uuid().optional(),
+  projectId: z.string().uuid().optional().nullable(),
+  licenseProductId: z.string().uuid().optional(),
+  amount: z.number().positive().optional(),
+  saleDate: z.string().datetime().optional(),
+  workEndDate: z.string().datetime().optional().nullable(),
+});
+
+salesRouter.patch("/:id", async (c) => {
+  const auth = c.get("auth");
+  const body = updateSchema.parse(await c.req.json());
+  const organizationId = auth.organizationId;
+
+  const sale = await prisma.sale.findFirst({ where: { id: c.req.param("id"), organizationId } });
+  if (!sale) throw new AppError(404, "Продажа не найдена");
+
+  const clientId = body.clientId ?? sale.clientId;
+  const projectId = body.projectId !== undefined ? body.projectId : sale.projectId;
+  const licenseProductId = body.licenseProductId ?? sale.licenseProductId;
+
+  const [client, product] = await Promise.all([
+    prisma.client.findFirst({ where: { id: clientId, organizationId } }),
+    prisma.licenseProduct.findFirst({ where: { id: licenseProductId, organizationId } }),
+  ]);
+  if (!client) throw new AppError(404, "Клиент не найден");
+  if (!product) throw new AppError(404, "Продукт не найден");
+
+  if (projectId) {
+    const project = await prisma.project.findFirst({ where: { id: projectId, organizationId } });
+    if (!project) throw new AppError(404, "Проект не найден");
+    if (project.clientId !== clientId) {
+      throw new AppError(400, "Проект принадлежит другому клиенту");
+    }
+  }
+
+  // Only re-derive the waterfall terms from the product's CURRENT defaults
+  // when the product itself is being changed — otherwise this sale keeps
+  // its original snapshot (e.g. fixing just the amount or date shouldn't
+  // silently pick up unrelated catalog changes made since the sale).
+  const productChanged = licenseProductId !== sale.licenseProductId;
+  const vendorSharePercent = productChanged ? Number(product.defaultVendorSharePercent) : Number(sale.vendorSharePercent);
+  const taxable = productChanged ? product.defaultTaxable : sale.taxable;
+
+  const amount = body.amount ?? Number(sale.amount);
+  const saleDate = body.saleDate ? new Date(body.saleDate) : sale.saleDate;
+  const workEndDate = body.workEndDate !== undefined ? (body.workEndDate ? new Date(body.workEndDate) : null) : sale.workEndDate;
+
+  const result = await updateSale({
+    organizationId,
+    saleId: sale.id,
+    clientId,
+    projectId,
+    licenseProductId,
+    amount,
+    saleDate,
+    workEndDate,
+    vendorSharePercent,
+    taxable,
+    categoryValueId: productChanged ? product.categoryValueId : undefined,
+    clientName: client.name,
+    productName: product.name,
+    userId: auth.userId,
+  });
+
+  return c.json(result);
 });
 
 salesRouter.delete("/:id", async (c) => {
