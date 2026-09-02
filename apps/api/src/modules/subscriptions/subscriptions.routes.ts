@@ -66,6 +66,9 @@ subscriptionsRouter.post("/", async (c) => {
   ]);
   if (!client) throw new AppError(404, "Клиент не найден");
   if (!product) throw new AppError(404, "Продукт не найден");
+  if (product.type === "WORK") {
+    throw new AppError(400, "У этого продукта нет срока подписки — это разовая работа. Оформите её через раздел Продажи.");
+  }
 
   if (body.projectId) {
     const project = await prisma.project.findFirst({ where: { id: body.projectId, organizationId } });
@@ -73,6 +76,11 @@ subscriptionsRouter.post("/", async (c) => {
     if (project.clientId !== body.clientId) {
       throw new AppError(400, "Проект принадлежит другому клиенту");
     }
+  }
+
+  const durationMonths = body.durationMonths ?? product.defaultDurationMonths;
+  if (!durationMonths) {
+    throw new AppError(400, "У продукта не задан срок подписки по умолчанию — укажите его вручную.");
   }
 
   const startDate = new Date(body.startDate);
@@ -83,7 +91,7 @@ subscriptionsRouter.post("/", async (c) => {
       projectId: body.projectId ?? null,
       licenseProductId: body.licenseProductId,
       price: body.price ?? product.defaultPrice,
-      durationMonths: body.durationMonths ?? product.defaultDurationMonths,
+      durationMonths,
       vendorSharePercent: body.vendorSharePercent ?? product.defaultVendorSharePercent,
       taxable: body.taxable ?? product.defaultTaxable,
       startDate,

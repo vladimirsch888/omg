@@ -48,6 +48,8 @@ const createSchema = z.object({
   licenseProductId: z.string().uuid(),
   amount: z.number().positive(),
   saleDate: z.string().datetime().optional(),
+  // "Дата окончания работ" — only meaningful for a WORK-type product.
+  workEndDate: z.string().datetime().optional().nullable(),
 });
 
 salesRouter.post("/", async (c) => {
@@ -79,6 +81,7 @@ salesRouter.post("/", async (c) => {
     licenseProductId: body.licenseProductId,
     amount: body.amount,
     saleDate,
+    workEndDate: body.workEndDate ? new Date(body.workEndDate) : null,
     vendorSharePercent: Number(product.defaultVendorSharePercent),
     taxable: product.defaultTaxable,
     categoryValueId: product.categoryValueId,

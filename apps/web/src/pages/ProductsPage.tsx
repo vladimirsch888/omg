@@ -6,6 +6,7 @@ import { formatMoney } from "../utils/format";
 
 const emptyForm = {
   name: "",
+  type: "LICENSE" as LicenseProduct["type"],
   categoryValueId: "",
   defaultPrice: "",
   defaultDurationMonths: "1",
@@ -40,9 +41,10 @@ export function ProductsPage() {
   function startEdit(p: LicenseProduct) {
     setForm({
       name: p.name,
+      type: p.type,
       categoryValueId: p.categoryValueId ?? "",
       defaultPrice: String(p.defaultPrice),
-      defaultDurationMonths: String(p.defaultDurationMonths),
+      defaultDurationMonths: p.defaultDurationMonths != null ? String(p.defaultDurationMonths) : "1",
       defaultVendorSharePercent: String(p.defaultVendorSharePercent),
       defaultTaxable: p.defaultTaxable,
     });
@@ -55,13 +57,18 @@ export function ProductsPage() {
     setEditingId(null);
   }
 
+  function onSelectType(type: LicenseProduct["type"]) {
+    setForm({ ...form, type, defaultVendorSharePercent: type === "WORK" ? "0" : form.defaultVendorSharePercent });
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const payload = {
       name: form.name,
+      type: form.type,
       categoryValueId: form.categoryValueId || undefined,
       defaultPrice: Number(form.defaultPrice),
-      defaultDurationMonths: Number(form.defaultDurationMonths),
+      defaultDurationMonths: form.type === "LICENSE" ? Number(form.defaultDurationMonths) : undefined,
       defaultVendorSharePercent: Number(form.defaultVendorSharePercent),
       defaultTaxable: form.defaultTaxable,
     };
@@ -108,6 +115,10 @@ export function ProductsPage() {
         <Card>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <input className="rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2" placeholder="Название (например amoCRM Professional, 10 мест)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+            <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.type} onChange={(e) => onSelectType(e.target.value as LicenseProduct["type"])}>
+              <option value="LICENSE">Лицензия (по подписке)</option>
+              <option value="WORK">Работа (разовая, без подписки)</option>
+            </select>
             <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.categoryValueId} onChange={(e) => setForm({ ...form, categoryValueId: e.target.value })}>
               <option value="">Категория операций…</option>
               {categories?.values.map((v) => (
@@ -115,10 +126,12 @@ export function ProductsPage() {
               ))}
             </select>
             <input type="number" step="0.01" className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Цена по умолчанию" value={form.defaultPrice} onChange={(e) => setForm({ ...form, defaultPrice: e.target.value })} required />
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-400">Срок подписки, мес.</label>
-              <input type="number" min="1" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.defaultDurationMonths} onChange={(e) => setForm({ ...form, defaultDurationMonths: e.target.value })} required />
-            </div>
+            {form.type === "LICENSE" && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-slate-400">Срок подписки, мес.</label>
+                <input type="number" min="1" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.defaultDurationMonths} onChange={(e) => setForm({ ...form, defaultDurationMonths: e.target.value })} required />
+              </div>
+            )}
             <div className="flex flex-col gap-1">
               <label className="text-xs text-slate-400">Доля вендора, %</label>
               <input type="number" min="0" max="100" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.defaultVendorSharePercent} onChange={(e) => setForm({ ...form, defaultVendorSharePercent: e.target.value })} required />
@@ -154,7 +167,7 @@ export function ProductsPage() {
                   <td className="py-2">{p.name}</td>
                   <td className="hidden py-2 sm:table-cell">{p.categoryValue?.name ?? "—"}</td>
                   <td className="py-2">{formatMoney(p.defaultPrice)}</td>
-                  <td className="hidden py-2 md:table-cell">{p.defaultDurationMonths} мес.</td>
+                  <td className="hidden py-2 md:table-cell">{p.type === "WORK" ? "разовая работа" : `${p.defaultDurationMonths} мес.`}</td>
                   <td className="hidden py-2 md:table-cell">{p.defaultVendorSharePercent}%</td>
                   <td className="py-2">
                     <button onClick={() => toggleActive(p.id, p.isActive)} className={`rounded px-2 py-1 text-xs ${p.isActive ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>

@@ -15,6 +15,7 @@ interface RecordSaleInput {
   licenseProductId: string;
   amount: number;
   saleDate: Date;
+  workEndDate?: Date | null;
   vendorSharePercent: number;
   taxable: boolean;
   categoryValueId: string | null;
@@ -41,6 +42,7 @@ export async function recordSale(input: RecordSaleInput) {
       licenseProductId: input.licenseProductId,
       amount: input.amount,
       saleDate: input.saleDate,
+      workEndDate: input.workEndDate ?? null,
       vendorSharePercent: input.vendorSharePercent,
       taxable: input.taxable,
       isDemo,

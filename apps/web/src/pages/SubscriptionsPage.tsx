@@ -34,7 +34,8 @@ export function SubscriptionsPage() {
   useEffect(() => {
     load();
     api.get<Client[]>("/clients").then((res) => setClients(res.data));
-    api.get<LicenseProduct[]>("/license-products").then((res) => setProducts(res.data));
+    // WORK products have no subscription term — only LICENSE products can be subscribed.
+    api.get<LicenseProduct[]>("/license-products").then((res) => setProducts(res.data.filter((p) => p.type === "LICENSE")));
     api.get<Project[]>("/projects").then((res) => setProjects(res.data.flatMap((p) => [p, ...(p.children ?? [])])));
   }, []);
 

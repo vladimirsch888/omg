@@ -22,11 +22,15 @@ licenseProductsRouter.get("/", async (c) => {
   return c.json(products);
 });
 
+// defaultDurationMonths only means anything for a LICENSE (a subscription
+// term to advance); a WORK product is a one-off job with no billing cycle,
+// so it's always stored as null regardless of what's sent for it.
 const productSchema = z.object({
   name: z.string().min(1),
+  type: z.enum(["LICENSE", "WORK"]).default("LICENSE"),
   categoryValueId: z.string().uuid().optional().nullable(),
   defaultPrice: z.number().positive(),
-  defaultDurationMonths: z.number().int().positive().default(1),
+  defaultDurationMonths: z.number().int().positive().optional().nullable(),
   defaultVendorSharePercent: z.number().min(0).max(100).default(50),
   defaultTaxable: z.boolean().default(true),
 });
@@ -34,8 +38,9 @@ const productSchema = z.object({
 licenseProductsRouter.post("/", requireRole("OWNER", "ADMIN"), async (c) => {
   const auth = c.get("auth");
   const body = productSchema.parse(await c.req.json());
+  const defaultDurationMonths = body.type === "WORK" ? null : (body.defaultDurationMonths ?? 1);
   const product = await prisma.licenseProduct.create({
-    data: { ...body, organizationId: auth.organizationId },
+    data: { ...body, organizationId: auth.organizationId, defaultDurationMonths },
   });
   return c.json(product, 201);
 });
@@ -47,7 +52,16 @@ licenseProductsRouter.patch("/:id", requireRole("OWNER", "ADMIN"), async (c) => 
     where: { id: c.req.param("id"), organizationId: auth.organizationId },
   });
   if (!product) throw new AppError(404, "Продукт не найден");
-  const updated = await prisma.licenseProduct.update({ where: { id: product.id }, data: body });
+
+  const effectiveType = body.type ?? product.type;
+  const data = { ...body } as typeof body;
+  if (effectiveType === "WORK") {
+    data.defaultDurationMonths = null;
+  } else if (body.defaultDurationMonths === undefined && product.defaultDurationMonths == null) {
+    data.defaultDurationMonths = 1;
+  }
+
+  const updated = await prisma.licenseProduct.update({ where: { id: product.id }, data });
   return c.json(updated);
 });
 

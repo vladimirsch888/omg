@@ -145,10 +145,11 @@ export interface DemoStatus {
 export interface LicenseProduct {
   id: string;
   name: string;
+  type: "LICENSE" | "WORK";
   categoryValueId?: string | null;
   categoryValue?: DictionaryValue | null;
   defaultPrice: string | number;
-  defaultDurationMonths: number;
+  defaultDurationMonths?: number | null;
   defaultVendorSharePercent: string | number;
   defaultTaxable: boolean;
   isActive: boolean;
@@ -182,6 +183,7 @@ export interface Sale {
   licenseProduct?: { id: string; name: string };
   amount: string | number;
   saleDate: string;
+  workEndDate?: string | null;
   vendorSharePercent: string | number;
   taxable: boolean;
   createdAt: string;

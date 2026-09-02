@@ -227,6 +227,21 @@ export async function seedDemoData(organizationId: string, userId: string) {
       defaultTaxable: false,
     },
   });
+  // A WORK-type product: a one-off job with a deadline instead of a
+  // subscription term — no defaultDurationMonths, no vendor cut (own work).
+  const productImplementationWork = await prisma.licenseProduct.create({
+    data: {
+      organizationId,
+      isDemo: true,
+      type: "WORK",
+      name: "Внедрение CRM под ключ",
+      categoryValueId: dict.category.client_work ?? null,
+      defaultPrice: 180000,
+      defaultDurationMonths: null,
+      defaultVendorSharePercent: 0,
+      defaultTaxable: true,
+    },
+  });
 
   // Bills `monthsOfHistory` worth of periods for a new subscription, reusing
   // the exact same billSubscription() the "Выставить следующий платёж"
@@ -235,11 +250,12 @@ export async function seedDemoData(organizationId: string, userId: string) {
   async function seedSubscription(
     clientId: string,
     projectId: string,
-    product: { id: string; defaultPrice: unknown; defaultDurationMonths: number; defaultVendorSharePercent: unknown; defaultTaxable: boolean; name: string },
+    product: { id: string; defaultPrice: unknown; defaultDurationMonths: number | null; defaultVendorSharePercent: unknown; defaultTaxable: boolean; name: string },
     monthsOfHistory: number,
     overrides: Partial<{ price: number; vendorSharePercent: number; taxable: boolean; durationMonths: number }> = {}
   ) {
     const durationMonths = overrides.durationMonths ?? product.defaultDurationMonths;
+    if (!durationMonths) throw new Error(`seedSubscription: product "${product.name}" has no defaultDurationMonths (is it a WORK product?)`);
     const startDate = dateInPast(monthsOfHistory, 5);
     let subscription = await prisma.subscription.create({
       data: {
@@ -287,7 +303,8 @@ export async function seedDemoData(organizationId: string, userId: string) {
     product: { id: string; defaultVendorSharePercent: unknown; defaultTaxable: boolean; categoryValueId: string | null; name: string },
     amount: number,
     monthsAgo: number,
-    day: number
+    day: number,
+    workEndDaysFromNow?: number
   ) {
     const result = await recordSale({
       organizationId,
@@ -296,6 +313,7 @@ export async function seedDemoData(organizationId: string, userId: string) {
       licenseProductId: product.id,
       amount,
       saleDate: dateInPast(monthsAgo, day),
+      workEndDate: workEndDaysFromNow != null ? new Date(Date.now() + workEndDaysFromNow * 24 * 60 * 60 * 1000) : null,
       vendorSharePercent: Number(product.defaultVendorSharePercent),
       taxable: product.defaultTaxable,
       categoryValueId: product.categoryValueId,
@@ -314,7 +332,9 @@ export async function seedDemoData(organizationId: string, userId: string) {
   saleOperationsCount += await seedSale(clientTechnopark.id, clientTechnopark.name, projectByKey.technopark, productNova, 250000, 1, 18);
   // Untaxed "card" product, also project-less.
   saleOperationsCount += await seedSale(clientSfera.id, clientSfera.name, null, productWazzupCard, 6000, 0, 22);
-  const salesCount = 3;
+  // WORK-type product: no subscription term, but a "Дата окончания работ" 30 days out.
+  saleOperationsCount += await seedSale(clientKuznetsov.id, clientKuznetsov.name, projectByKey.kuznetsovMain, productImplementationWork, 180000, 0, 1, 30);
+  const salesCount = 4;
 
   // Monthly recurring income/expense streams. `monthsBack` = how many months
   // of history to generate, counting back from the current month.
@@ -451,7 +471,7 @@ export async function seedDemoData(organizationId: string, userId: string) {
   return {
     clients: 4,
     projects: 6,
-    licenseProducts: 4,
+    licenseProducts: 5,
     subscriptions: 4,
     sales: salesCount,
     operations: operationsToCreate.length + subscriptionOperationsCount + saleOperationsCount,
