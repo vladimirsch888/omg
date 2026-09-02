@@ -24,6 +24,9 @@ model Organization {
   operations      Operation[]
   requests        Request[]
   timeEntries     TimeEntry[]
+  licenseProducts LicenseProduct[]
+  subscriptions   Subscription[]
+  sales           Sale[]
 }
 
 enum Role {
@@ -70,9 +73,12 @@ model Client {
   contactPhone   String?
   status         ClientStatus @default(ACTIVE)
   notes          String?
+  isDemo         Boolean  @default(false)
   createdAt      DateTime @default(now())
 
-  projects Project[]
+  projects      Project[]
+  subscriptions Subscription[]
+  sales         Sale[]
 
   @@index([organizationId])
 }
@@ -107,11 +113,14 @@ model Project {
   endDate        DateTime?
   hourlyRate     Decimal? @db.Decimal(14, 2)
   budgetHours    Decimal? @db.Decimal(10, 2)
+  isDemo         Boolean  @default(false)
   createdAt      DateTime @default(now())
 
-  operations  Operation[]
-  timeEntries TimeEntry[]
-  requests    Request[]
+  operations    Operation[]
+  timeEntries   TimeEntry[]
+  requests      Request[]
+  subscriptions Subscription[]
+  sales         Sale[]
 
   @@index([organizationId])
   @@index([clientId])
@@ -148,13 +157,137 @@ model DictionaryValue {
   sortOrder        Int      @default(0)
   isActive         Boolean  @default(true)
 
-  operations Operation[] @relation("OperationCategory")
-  paymentOps Operation[] @relation("OperationPaymentMethod")
-  projects   Project[]
-  requests   Request[]  @relation("RequestType")
+  operations      Operation[]      @relation("OperationCategory")
+  paymentOps      Operation[]      @relation("OperationPaymentMethod")
+  projects        Project[]
+  requests        Request[]        @relation("RequestType")
+  licenseProducts LicenseProduct[] @relation("LicenseProductCategory")
 
   @@unique([dictionaryTypeId, code])
   @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// License product catalog ("товарная матрица") + client subscriptions
+// ---------------------------------------------------------------------------
+
+enum ProductType {
+  LICENSE
+  WORK
+}
+
+model LicenseProduct {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name        String
+  type        ProductType @default(LICENSE)
+  categoryValueId String?
+  categoryValue   DictionaryValue? @relation("LicenseProductCategory", fields: [categoryValueId], references: [id])
+
+  // Defaults copied onto a Subscription when it's created from this product;
+  // each Subscription can then override them per client deal.
+  // defaultDurationMonths is meaningless for a WORK product (a one-off job
+  // has no billing cycle to advance) — null there, required for LICENSE.
+  defaultPrice              Decimal @db.Decimal(14, 2)
+  defaultDurationMonths     Int?    @default(1)
+  defaultVendorSharePercent Decimal @db.Decimal(5, 2) @default(50)
+  defaultTaxable            Boolean @default(true)
+
+  // Mirror of defaultDurationMonths for a WORK product: an estimated
+  // execution time in working days, used to prefill and auto-calculate a
+  // Sale's workEndDate ("Дата окончания работ") from the sale date. Null
+  // for LICENSE (has no notion of "working days to finish").
+  defaultWorkDays Int?
+
+  isActive  Boolean  @default(true)
+  isDemo    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  subscriptions Subscription[]
+  sales         Sale[]
+
+  @@index([organizationId])
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+model Subscription {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  licenseProductId String
+  licenseProduct   LicenseProduct @relation(fields: [licenseProductId], references: [id])
+
+  // Snapshot of terms for this specific client deal — independent of later
+  // changes to the product's defaults.
+  price              Decimal @db.Decimal(14, 2)
+  durationMonths     Int
+  vendorSharePercent Decimal @db.Decimal(5, 2)
+  taxable            Boolean @default(true)
+
+  status          SubscriptionStatus @default(ACTIVE)
+  startDate       DateTime
+  nextBillingDate DateTime
+
+  isDemo    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  operations Operation[]
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([nextBillingDate])
+}
+
+// A one-off sale of a product to a client — unlike Subscription, this has no
+// billing cycle: it books its operations once, on saleDate, and that's it.
+// Always carries clientId directly (even though projectId is optional) so
+// revenue is never invisible to per-client reporting.
+model Sale {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  licenseProductId String
+  licenseProduct   LicenseProduct @relation(fields: [licenseProductId], references: [id])
+
+  amount   Decimal  @db.Decimal(14, 2)
+  saleDate DateTime
+
+  // "Дата окончания работ" — only meaningful when licenseProduct.type is
+  // WORK (a one-off job with a deadline instead of a subscription term).
+  workEndDate DateTime?
+
+  // Snapshot from the product at the time of sale, for the financial waterfall.
+  vendorSharePercent Decimal @db.Decimal(5, 2)
+  taxable            Boolean @default(true)
+
+  isDemo    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  operations Operation[]
+
+  @@index([organizationId])
+  @@index([clientId])
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +331,20 @@ model Operation {
 
   counterparty String?
   description  String?
+  isDemo       Boolean @default(false)
+
+  // Financial waterfall (see apps/api/src/modules/finance/waterfall.ts):
+  // for INCOME, vendorSharePercent is the cut owed to a licensing vendor
+  // (0 for services/support), taxable marks whether this money counts
+  // toward the accrued tax reserve (false for untaxed "card" payments).
+  vendorSharePercent Decimal @db.Decimal(5, 2) @default(0)
+  taxable            Boolean @default(true)
+
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  saleId String?
+  sale   Sale?   @relation(fields: [saleId], references: [id], onDelete: SetNull)
 
   createdById String?
   createdBy   User?   @relation("OperationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -206,6 +353,8 @@ model Operation {
   @@index([organizationId, accrualDate])
   @@index([organizationId, paymentDate])
   @@index([projectId])
+  @@index([subscriptionId])
+  @@index([saleId])
 }
 
 // ---------------------------------------------------------------------------
@@ -241,6 +390,7 @@ model Request {
   requestTypeValueId String?
   requestTypeValue   DictionaryValue? @relation("RequestType", fields: [requestTypeValueId], references: [id])
 
+  isDemo    Boolean   @default(false)
   createdAt DateTime  @default(now())
   closedAt  DateTime?
 
@@ -267,6 +417,7 @@ model TimeEntry {
   date        DateTime
   hours       Decimal  @db.Decimal(6, 2)
   description String?
+  isDemo      Boolean  @default(false)
   createdAt   DateTime @default(now())
 
   @@index([organizationId])

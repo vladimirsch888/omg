@@ -12,13 +12,17 @@ import { operationsRouter } from "./modules/operations/operations.routes";
 import { requestsRouter } from "./modules/requests/requests.routes";
 import { timeEntriesRouter } from "./modules/timeEntries/timeEntries.routes";
 import { reportsRouter } from "./modules/reports/reports.routes";
+import { demoRouter } from "./modules/demo/demo.routes";
+import { licenseProductsRouter } from "./modules/licenseProducts/licenseProducts.routes";
+import { subscriptionsRouter } from "./modules/subscriptions/subscriptions.routes";
+import { salesRouter } from "./modules/sales/sales.routes";
 import type { AppEnv } from "./types/hono";
 
 export const app = new Hono<AppEnv>();
 
 app.use("*", cors({ origin: config.corsOrigin }));
 
-app.get("/health", (c) => c.json({ ok: true }));
+app.get("/health", (c) => c.json({ ok: true, version: 1 }));
 
 app.route("/api/auth", authRouter);
 app.route("/api/users", usersRouter);
@@ -29,6 +33,10 @@ app.route("/api/operations", operationsRouter);
 app.route("/api/requests", requestsRouter);
 app.route("/api/time-entries", timeEntriesRouter);
 app.route("/api/reports", reportsRouter);
+app.route("/api/demo", demoRouter);
+app.route("/api/license-products", licenseProductsRouter);
+app.route("/api/subscriptions", subscriptionsRouter);
+app.route("/api/sales", salesRouter);
 
 app.onError((err, c) => {
   if (err instanceof AppError) {

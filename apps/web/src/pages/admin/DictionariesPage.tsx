@@ -1,14 +1,16 @@
 import { FormEvent, useEffect, useState } from "react";
+import { Plus } from "lucide-react";
 import { api } from "../../api/client";
 import { DictionaryType } from "../../api/types";
-import { Card } from "../../components/Card";
+import { Badge, Button, Card, Field, Input, Modal, PageHeader, StatusBadge, useUi } from "../../components/ui";
 
 export function DictionariesPage() {
+  const ui = useUi();
   const [types, setTypes] = useState<DictionaryType[]>([]);
-  const [showTypeForm, setShowTypeForm] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [typeCode, setTypeCode] = useState("");
   const [typeName, setTypeName] = useState("");
-
   const [valueDrafts, setValueDrafts] = useState<Record<string, { code: string; name: string }>>({});
 
   function load() {
@@ -19,19 +21,31 @@ export function DictionariesPage() {
 
   async function createType(e: FormEvent) {
     e.preventDefault();
-    await api.post("/dictionaries", { code: typeCode, name: typeName });
-    setTypeCode("");
-    setTypeName("");
-    setShowTypeForm(false);
-    load();
+    setSaving(true);
+    try {
+      await api.post("/dictionaries", { code: typeCode, name: typeName });
+      ui.toast("Раздел создан", "success");
+      setTypeCode("");
+      setTypeName("");
+      setFormOpen(false);
+      load();
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось создать раздел", "error");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function addValue(typeId: string) {
     const draft = valueDrafts[typeId];
     if (!draft?.code || !draft?.name) return;
-    await api.post(`/dictionaries/${typeId}/values`, draft);
-    setValueDrafts((prev) => ({ ...prev, [typeId]: { code: "", name: "" } }));
-    load();
+    try {
+      await api.post(`/dictionaries/${typeId}/values`, draft);
+      setValueDrafts((prev) => ({ ...prev, [typeId]: { code: "", name: "" } }));
+      load();
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось добавить значение", "error");
+    }
   }
 
   async function toggleValue(id: string, isActive: boolean) {
@@ -40,71 +54,101 @@ export function DictionariesPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Справочники</h1>
-        <button onClick={() => setShowTypeForm(!showTypeForm)} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
-          {showTypeForm ? "Отмена" : "+ Новый раздел справочника"}
-        </button>
-      </div>
-
-      {showTypeForm && (
-        <Card>
-          <form onSubmit={createType} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Код (например my_section)" value={typeCode} onChange={(e) => setTypeCode(e.target.value)} required />
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Название раздела" value={typeName} onChange={(e) => setTypeName(e.target.value)} required />
-            <button type="submit" className="w-fit rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
-              Создать раздел
-            </button>
-          </form>
-        </Card>
-      )}
+    <div className="flex flex-col gap-5 sm:gap-6">
+      <PageHeader
+        title="Справочники"
+        description="Категории операций, типы проектов и заявок. Значения используются в формах по всему приложению."
+        actions={
+          <Button variant="primary" icon={Plus} onClick={() => setFormOpen(true)}>
+            Новый раздел
+          </Button>
+        }
+      />
 
       {types.map((type) => (
-        <Card key={type.id} title={`${type.name} (${type.code})${type.isSystem ? " · системный" : ""}`}>
-          <div className="overflow-x-auto -mx-4 px-4">
-        <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-slate-500">
-                <th className="py-2">Код</th>
-                <th className="py-2">Название</th>
-                <th className="py-2">Активно</th>
-              </tr>
-            </thead>
-            <tbody>
-              {type.values.map((v) => (
-                <tr key={v.id} className="border-b border-slate-100">
-                  <td className="py-2">{v.code}</td>
-                  <td className="py-2">{v.name}</td>
-                  <td className="py-2">
-                    <button onClick={() => toggleValue(v.id, v.isActive)} className={`rounded px-2 py-1 text-xs ${v.isActive ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>
-                      {v.isActive ? "Да" : "Нет"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-          <div className="mt-3 flex gap-2">
-            <input
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+        <Card
+          key={type.id}
+          title={
+            <span className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-ink">{type.name}</span>
+              <Badge>{type.code}</Badge>
+              {type.isSystem && <Badge tone="accent">системный</Badge>}
+            </span>
+          }
+        >
+          <ul className="flex flex-col gap-1.5">
+            {type.values.map((v) => (
+              <li
+                key={v.id}
+                className="flex items-center justify-between gap-3 rounded-lg border border-line bg-raised/40 px-3 py-2"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-sm text-ink">{v.name}</span>
+                  <span className="shrink-0 text-[11px] text-ink-subtle">{v.code}</span>
+                </div>
+                <button onClick={() => toggleValue(v.id, v.isActive)} className="shrink-0 cursor-pointer">
+                  <StatusBadge label={v.isActive ? "Активно" : "Отключено"} tone={v.isActive ? "income" : "neutral"} />
+                </button>
+              </li>
+            ))}
+            {type.values.length === 0 && (
+              <li className="py-3 text-center text-sm text-ink-subtle">В разделе пока нет значений</li>
+            )}
+          </ul>
+
+          <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3 sm:flex-row">
+            <Input
               placeholder="код_значения"
+              className="sm:max-w-48"
               value={valueDrafts[type.id]?.code ?? ""}
-              onChange={(e) => setValueDrafts((prev) => ({ ...prev, [type.id]: { ...prev[type.id], code: e.target.value, name: prev[type.id]?.name ?? "" } }))}
+              onChange={(e) =>
+                setValueDrafts((prev) => ({
+                  ...prev,
+                  [type.id]: { code: e.target.value, name: prev[type.id]?.name ?? "" },
+                }))
+              }
             />
-            <input
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+            <Input
               placeholder="Название значения"
               value={valueDrafts[type.id]?.name ?? ""}
-              onChange={(e) => setValueDrafts((prev) => ({ ...prev, [type.id]: { ...prev[type.id], name: e.target.value, code: prev[type.id]?.code ?? "" } }))}
+              onChange={(e) =>
+                setValueDrafts((prev) => ({
+                  ...prev,
+                  [type.id]: { code: prev[type.id]?.code ?? "", name: e.target.value },
+                }))
+              }
             />
-            <button onClick={() => addValue(type.id)} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
-              + Добавить значение
-            </button>
+            <Button variant="secondary" icon={Plus} onClick={() => addValue(type.id)}>
+              Добавить
+            </Button>
           </div>
         </Card>
       ))}
+
+      <Modal
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        title="Новый раздел справочника"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setFormOpen(false)}>
+              Отмена
+            </Button>
+            <Button variant="primary" form="dictionary-form" type="submit" loading={saving}>
+              Создать
+            </Button>
+          </>
+        }
+      >
+        <form id="dictionary-form" onSubmit={createType} className="flex flex-col gap-3.5 pb-2">
+          <Field label="Код" hint="Латиницей, например my_section">
+            <Input value={typeCode} onChange={(e) => setTypeCode(e.target.value)} required />
+          </Field>
+          <Field label="Название раздела">
+            <Input value={typeName} onChange={(e) => setTypeName(e.target.value)} required />
+          </Field>
+        </form>
+      </Modal>
     </div>
   );
 }

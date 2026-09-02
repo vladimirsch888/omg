@@ -8,12 +8,16 @@ import { ClientDetailPage } from "./pages/ClientDetailPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { OperationsPage } from "./pages/OperationsPage";
+import { ProductsPage } from "./pages/ProductsPage";
+import { SalesPage } from "./pages/SalesPage";
+import { SubscriptionsPage } from "./pages/SubscriptionsPage";
 import { RequestsPage } from "./pages/RequestsPage";
 import { TimeTrackingPage } from "./pages/TimeTrackingPage";
 import { PnLPage } from "./pages/PnLPage";
 import { DDSPage } from "./pages/DDSPage";
 import { DictionariesPage } from "./pages/admin/DictionariesPage";
 import { UsersPage } from "./pages/admin/UsersPage";
+import { SettingsPage } from "./pages/admin/SettingsPage";
 
 export default function App() {
   return (
@@ -32,12 +36,16 @@ export default function App() {
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
         <Route path="/operations" element={<OperationsPage />} />
+        <Route path="/products" element={<ProductsPage />} />
+        <Route path="/sales" element={<SalesPage />} />
+        <Route path="/subscriptions" element={<SubscriptionsPage />} />
         <Route path="/requests" element={<RequestsPage />} />
         <Route path="/time-tracking" element={<TimeTrackingPage />} />
         <Route path="/reports/pnl" element={<PnLPage />} />
         <Route path="/reports/dds" element={<DDSPage />} />
         <Route path="/admin/dictionaries" element={<DictionariesPage />} />
         <Route path="/admin/users" element={<UsersPage />} />
+        <Route path="/admin/settings" element={<SettingsPage />} />
       </Route>
     </Routes>
   );

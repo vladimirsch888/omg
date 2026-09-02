@@ -1,9 +1,24 @@
-import { useEffect, useState } from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
+import { lazy, useEffect, useState } from "react";
+import { ArrowDownRight, ArrowUpRight, TrendingUp } from "lucide-react";
 import { api } from "../api/client";
 import { PnLReport } from "../api/types";
-import { Card, StatCard } from "../components/Card";
+import {
+  Card,
+  Column,
+  DataTable,
+  InlineBar,
+  MetaItem,
+  PageHeader,
+  PageSkeleton,
+  RowCard,
+  StatCard,
+} from "../components/ui";
+import { LazyChart } from "../components/charts/LazyChart";
 import { formatMoney } from "../utils/format";
+
+const PnlBars = lazy(() => import("../components/charts/PnlBars"));
+
+type CategoryRow = PnLReport["byCategory"][number];
 
 export function PnLPage() {
   const [report, setReport] = useState<PnLReport | null>(null);
@@ -15,57 +30,77 @@ export function PnLPage() {
     api.get<PnLReport>("/reports/pnl", { params: { from: from.toISOString() } }).then((res) => setReport(res.data));
   }, []);
 
-  if (!report) return <div className="text-slate-500">Загрузка…</div>;
+  if (!report) return <PageSkeleton stats={3} rows={6} />;
+
+  // Bars inside the table are scaled against the largest turnover in the list,
+  // so categories are comparable at a glance without reading every number.
+  const maxTurnover = Math.max(...report.byCategory.map((c) => Math.max(c.income, c.expense)), 1);
+
+  const columns: Column<CategoryRow>[] = [
+    {
+      key: "name",
+      header: "Категория",
+      render: (c) => (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-ink">{c.categoryName}</span>
+          <InlineBar
+            value={Math.max(c.income, c.expense)}
+            max={maxTurnover}
+            tone={c.income >= c.expense ? "income" : "expense"}
+          />
+        </div>
+      ),
+      width: "40%",
+    },
+    { key: "income", header: "Доход", align: "right", render: (c) => <span className="text-income">{formatMoney(c.income)}</span> },
+    { key: "expense", header: "Расход", align: "right", render: (c) => <span className="text-expense">{formatMoney(c.expense)}</span> },
+    {
+      key: "profit",
+      header: "Итого",
+      align: "right",
+      render: (c) => <span className="font-medium text-ink">{formatMoney(c.profit)}</span>,
+    },
+  ];
 
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold">PnL — прибыли и убытки (метод начисления)</h1>
+    <div className="flex flex-col gap-5 sm:gap-6">
+      <PageHeader
+        title="PnL — прибыли и убытки"
+        description="Метод начисления: доходы и расходы попадают в тот месяц, к которому относятся, независимо от даты оплаты."
+      />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard label="Выручка" value={formatMoney(report.totals.income)} />
-        <StatCard label="Расходы" value={formatMoney(report.totals.expense)} />
-        <StatCard label="Прибыль" value={formatMoney(report.totals.profit)} />
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 sm:grid-cols-3">
+        <StatCard label="Выручка" value={formatMoney(report.totals.income)} tone="income" icon={ArrowUpRight} />
+        <StatCard label="Расходы" value={formatMoney(report.totals.expense)} tone="expense" icon={ArrowDownRight} />
+        <StatCard label="Прибыль" value={formatMoney(report.totals.profit)} tone="accent" icon={TrendingUp} />
       </div>
 
       <Card title="По месяцам">
-        <div className="h-72 w-full">
-          <ResponsiveContainer>
-            <BarChart data={report.periods}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="period" fontSize={12} />
-              <YAxis fontSize={12} />
-              <Tooltip formatter={(v) => formatMoney(Number(v ?? 0))} />
-              <Bar dataKey="income" name="Доход" fill="#16a34a" />
-              <Bar dataKey="expense" name="Расход" fill="#dc2626" />
-              <Bar dataKey="profit" name="Прибыль" fill="#0f172a" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <LazyChart>
+          <PnlBars data={report.periods} />
+        </LazyChart>
       </Card>
 
       <Card title="По категориям">
-        <div className="overflow-x-auto -mx-4 px-4">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-slate-500">
-              <th className="py-2">Категория</th>
-              <th className="py-2">Доход</th>
-              <th className="py-2">Расход</th>
-              <th className="py-2">Итого</th>
-            </tr>
-          </thead>
-          <tbody>
-            {report.byCategory.map((c) => (
-              <tr key={c.categoryId} className="border-b border-slate-100">
-                <td className="py-2">{c.categoryName}</td>
-                <td className="py-2 text-green-600">{formatMoney(c.income)}</td>
-                <td className="py-2 text-red-600">{formatMoney(c.expense)}</td>
-                <td className="py-2 font-medium">{formatMoney(c.profit)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </div>
+        <DataTable
+          rows={report.byCategory}
+          columns={columns}
+          getRowKey={(c) => c.categoryId}
+          renderCard={(c) => (
+            <RowCard
+              title={c.categoryName}
+              value={formatMoney(c.profit)}
+              valueTone={c.profit >= 0 ? "income" : "expense"}
+              meta={
+                <>
+                  <MetaItem label="Доход">{formatMoney(c.income)}</MetaItem>
+                  <MetaItem label="Расход">{formatMoney(c.expense)}</MetaItem>
+                </>
+              }
+            />
+          )}
+          empty={<p className="py-6 text-center text-sm text-ink-subtle">За период нет операций</p>}
+        />
       </Card>
     </div>
   );

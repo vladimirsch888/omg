@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "../src/prisma";
 import { seedDefaultDictionaries } from "../src/modules/dictionaries/dictionaries.seed";
+import { seedDemoData } from "../src/modules/demo/demo.service";
 
 async function main() {
   const email = "owner@example.com";
@@ -17,7 +18,7 @@ async function main() {
   await seedDefaultDictionaries(organization.id);
 
   const passwordHash = await bcrypt.hash("password123", 10);
-  await prisma.user.create({
+  const owner = await prisma.user.create({
     data: {
       organizationId: organization.id,
       email,
@@ -27,112 +28,7 @@ async function main() {
     },
   });
 
-  const categories = await prisma.dictionaryValue.findMany({
-    where: { organizationId: organization.id, dictionaryType: { code: "operation_category" } },
-  });
-  const cat = (code: string) => categories.find((c) => c.code === code)!.id;
-
-  const projectTypes = await prisma.dictionaryValue.findMany({
-    where: { organizationId: organization.id, dictionaryType: { code: "project_type" } },
-  });
-  const type = (code: string) => projectTypes.find((t) => t.code === code)!.id;
-
-  const client = await prisma.client.create({
-    data: {
-      organizationId: organization.id,
-      name: 'ООО "Ромашка"',
-      legalName: 'ООО "Ромашка"',
-      inn: "7701234567",
-      contactPerson: "Иван Петров",
-      contactEmail: "ivan@romashka.example",
-      status: "ACTIVE",
-    },
-  });
-
-  const parentProject = await prisma.project.create({
-    data: {
-      organizationId: organization.id,
-      clientId: client.id,
-      name: "Внедрение и сопровождение CRM",
-      typeValueId: type("implementation"),
-      hourlyRate: 2500,
-    },
-  });
-
-  const licenseSubproject = await prisma.project.create({
-    data: {
-      organizationId: organization.id,
-      clientId: client.id,
-      parentId: parentProject.id,
-      name: "Лицензия amoCRM (10 мест)",
-      typeValueId: type("license_amocrm"),
-    },
-  });
-
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 5);
-
-  await prisma.operation.createMany({
-    data: [
-      {
-        organizationId: organization.id,
-        projectId: licenseSubproject.id,
-        type: "INCOME",
-        amount: 45000,
-        accrualDate: monthStart,
-        paymentDate: monthStart,
-        categoryValueId: cat("license_amocrm"),
-        counterparty: client.name,
-        description: "Оплата лицензии amoCRM на 10 пользователей",
-      },
-      {
-        organizationId: organization.id,
-        projectId: licenseSubproject.id,
-        type: "EXPENSE",
-        amount: 30000,
-        accrualDate: monthStart,
-        paymentDate: monthStart,
-        categoryValueId: cat("license_cost"),
-        counterparty: "amoCRM (официальный партнёр)",
-        description: "Закупка лицензий у поставщика",
-      },
-      {
-        organizationId: organization.id,
-        projectId: parentProject.id,
-        type: "INCOME",
-        amount: 80000,
-        accrualDate: monthStart,
-        paymentDate: monthStart,
-        categoryValueId: cat("client_support"),
-        counterparty: client.name,
-        description: "Сопровождение CRM за месяц",
-      },
-    ],
-  });
-
-  const request = await prisma.request.create({
-    data: {
-      organizationId: organization.id,
-      projectId: parentProject.id,
-      title: "Настроить автоматическую воронку продаж",
-      status: "DONE",
-      priority: "HIGH",
-    },
-  });
-
-  const owner = await prisma.user.findFirstOrThrow({ where: { organizationId: organization.id } });
-
-  await prisma.timeEntry.create({
-    data: {
-      organizationId: organization.id,
-      projectId: parentProject.id,
-      requestId: request.id,
-      userId: owner.id,
-      date: monthStart,
-      hours: 6,
-      description: "Настройка воронки и автоматизаций",
-    },
-  });
+  await seedDemoData(organization.id, owner.id);
 
   console.log("Seed complete. Login: owner@example.com / password123");
 }

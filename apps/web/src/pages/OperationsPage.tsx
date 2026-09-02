@@ -1,23 +1,48 @@
 import { FormEvent, useEffect, useState } from "react";
+import { ArrowLeftRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "../api/client";
 import { DictionaryType, Operation, Project } from "../api/types";
-import { Card } from "../components/Card";
-import { formatMoney, formatDate } from "../utils/format";
+import {
+  Badge,
+  Button,
+  ListCard,
+  Checkbox,
+  Column,
+  DataTable,
+  EmptyState,
+  Field,
+  IconButton,
+  Input,
+  MetaItem,
+  Modal,
+  PageHeader,
+  RowCard,
+  Select,
+  useUi,
+} from "../components/ui";
+import { formatDate, formatMoney, toDateInputValue } from "../utils/format";
+
+const emptyForm = {
+  type: "INCOME" as "INCOME" | "EXPENSE",
+  projectId: "",
+  amount: "",
+  accrualDate: new Date().toISOString().slice(0, 10),
+  paymentDate: new Date().toISOString().slice(0, 10),
+  categoryValueId: "",
+  description: "",
+  vendorSharePercent: "0",
+  taxable: true,
+};
 
 export function OperationsPage() {
+  const ui = useUi();
   const [operations, setOperations] = useState<Operation[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [categories, setCategories] = useState<DictionaryType | null>(null);
-  const [paymentMethods, setPaymentMethods] = useState<DictionaryType | null>(null);
-  const [showForm, setShowForm] = useState(false);
-
-  const [type, setType] = useState<"INCOME" | "EXPENSE">("INCOME");
-  const [projectId, setProjectId] = useState("");
-  const [amount, setAmount] = useState("");
-  const [accrualDate, setAccrualDate] = useState(new Date().toISOString().slice(0, 10));
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
-  const [categoryValueId, setCategoryValueId] = useState("");
-  const [description, setDescription] = useState("");
+  const [formOpen, setFormOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(emptyForm);
 
   function load() {
     api.get("/operations", { params: { pageSize: 100 } }).then((res) => setOperations(res.data.items));
@@ -26,105 +51,282 @@ export function OperationsPage() {
   useEffect(() => {
     load();
     api.get<Project[]>("/projects").then((res) => {
-      const all = res.data.flatMap((p) => [p, ...(p.children ?? [])]);
-      setProjects(all);
+      setProjects(res.data.flatMap((p) => [p, ...(p.children ?? [])]));
     });
     api.get<DictionaryType[]>("/dictionaries").then((res) => {
       setCategories(res.data.find((d) => d.code === "operation_category") ?? null);
-      setPaymentMethods(res.data.find((d) => d.code === "payment_method") ?? null);
     });
   }, []);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    await api.post("/operations", {
-      type,
-      projectId: projectId || undefined,
-      amount: Number(amount),
-      accrualDate: new Date(accrualDate).toISOString(),
-      paymentDate: paymentDate ? new Date(paymentDate).toISOString() : undefined,
-      categoryValueId: categoryValueId || undefined,
-      description: description || undefined,
-    });
-    setAmount("");
-    setDescription("");
-    setShowForm(false);
-    load();
+  function startCreate() {
+    setForm(emptyForm);
+    setEditingId(null);
+    setFormOpen(true);
   }
 
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Операции (доходы / расходы)</h1>
-        <button onClick={() => setShowForm(!showForm)} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
-          {showForm ? "Отмена" : "+ Новая операция"}
-        </button>
-      </div>
+  function startEdit(o: Operation) {
+    setForm({
+      type: o.type,
+      projectId: o.projectId ?? "",
+      amount: String(o.amount),
+      accrualDate: toDateInputValue(o.accrualDate),
+      paymentDate: toDateInputValue(o.paymentDate),
+      categoryValueId: o.categoryValueId ?? "",
+      description: o.description ?? "",
+      vendorSharePercent: String(o.vendorSharePercent ?? 0),
+      taxable: o.taxable ?? true,
+    });
+    setEditingId(o.id);
+    setFormOpen(true);
+  }
 
-      {showForm && (
-        <Card>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={type} onChange={(e) => setType(e.target.value as any)}>
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    const payload = {
+      type: form.type,
+      projectId: form.projectId || undefined,
+      amount: Number(form.amount),
+      accrualDate: new Date(form.accrualDate).toISOString(),
+      paymentDate: form.paymentDate ? new Date(form.paymentDate).toISOString() : undefined,
+      categoryValueId: form.categoryValueId || undefined,
+      description: form.description || undefined,
+      vendorSharePercent: form.type === "INCOME" ? Number(form.vendorSharePercent) : undefined,
+      taxable: form.type === "INCOME" ? form.taxable : undefined,
+    };
+    try {
+      if (editingId) {
+        await api.patch(`/operations/${editingId}`, payload);
+        ui.toast("Операция обновлена", "success");
+      } else {
+        await api.post("/operations", payload);
+        ui.toast("Операция добавлена", "success");
+      }
+      setFormOpen(false);
+      setEditingId(null);
+      load();
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось сохранить операцию", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(o: Operation) {
+    const confirmed = await ui.confirm({
+      title: "Удалить операцию?",
+      message: `${o.type === "INCOME" ? "Доход" : "Расход"} на ${formatMoney(o.amount)} от ${formatDate(o.accrualDate)}.`,
+      confirmLabel: "Удалить",
+      danger: true,
+    });
+    if (!confirmed) return;
+    try {
+      await api.delete(`/operations/${o.id}`);
+      ui.toast("Операция удалена", "success");
+      load();
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось удалить операцию", "error");
+    }
+  }
+
+  const amountCell = (o: Operation) => (
+    <span className={`font-medium ${o.type === "INCOME" ? "text-income" : "text-expense"}`}>
+      {o.type === "INCOME" ? "+" : "−"}
+      {formatMoney(o.amount)}
+    </span>
+  );
+
+  const columns: Column<Operation>[] = [
+    { key: "date", header: "Дата", render: (o) => <span className="text-ink-muted">{formatDate(o.accrualDate)}</span> },
+    {
+      key: "project",
+      header: "Проект",
+      hideBelow: "md",
+      render: (o) => <span className="text-ink-muted">{o.project?.name ?? "Компания"}</span>,
+    },
+    {
+      key: "category",
+      header: "Категория",
+      hideBelow: "lg",
+      render: (o) => <span className="text-ink-muted">{o.categoryValue?.name ?? "—"}</span>,
+    },
+    {
+      key: "description",
+      header: "Описание",
+      render: (o) => <span className="text-ink">{o.description || (o.type === "INCOME" ? "Доход" : "Расход")}</span>,
+    },
+    { key: "amount", header: "Сумма", align: "right", render: amountCell },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (o) => (
+        <div className="flex items-center justify-end gap-1">
+          <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(o)} />
+          <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(o)} className="hover:text-expense" />
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <div className="flex flex-col gap-5 sm:gap-6">
+      <PageHeader
+        title="Операции"
+        description="Все доходы и расходы компании. Дата начисления идёт в PnL, дата оплаты — в ДДС."
+        actions={
+          <Button variant="primary" icon={Plus} onClick={startCreate}>
+            Новая операция
+          </Button>
+        }
+      />
+
+      <ListCard>
+        <DataTable
+          rows={operations}
+          columns={columns}
+          getRowKey={(o) => o.id}
+          renderCard={(o) => (
+            <RowCard
+              title={o.description || (o.type === "INCOME" ? "Доход" : "Расход")}
+              subtitle={o.project?.name ?? "Общая операция компании"}
+              value={`${o.type === "INCOME" ? "+" : "−"}${formatMoney(o.amount)}`}
+              valueTone={o.type === "INCOME" ? "income" : "expense"}
+              meta={
+                <>
+                  <MetaItem label="Дата">{formatDate(o.accrualDate)}</MetaItem>
+                  {o.categoryValue?.name && <Badge>{o.categoryValue.name}</Badge>}
+                  {o.taxable === false && <Badge tone="reserve">на карту</Badge>}
+                </>
+              }
+              actions={
+                <>
+                  <Button size="sm" variant="ghost" icon={Pencil} onClick={() => startEdit(o)}>
+                    Изменить
+                  </Button>
+                  <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(o)}>
+                    Удалить
+                  </Button>
+                </>
+              }
+            />
+          )}
+          empty={
+            <EmptyState
+              icon={ArrowLeftRight}
+              title="Операций пока нет"
+              description="Добавьте первую операцию вручную — или они появятся сами при продажах и продлениях."
+              action={
+                <Button variant="primary" icon={Plus} onClick={startCreate}>
+                  Новая операция
+                </Button>
+              }
+            />
+          }
+        />
+      </ListCard>
+
+      <Modal
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        title={editingId ? "Редактирование операции" : "Новая операция"}
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setFormOpen(false)}>
+              Отмена
+            </Button>
+            <Button variant="primary" form="operation-form" type="submit" loading={saving}>
+              Сохранить
+            </Button>
+          </>
+        }
+      >
+        <form id="operation-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-3.5 pb-2 sm:grid-cols-2">
+          <Field label="Тип">
+            <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as "INCOME" | "EXPENSE" })}>
               <option value="INCOME">Доход</option>
               <option value="EXPENSE">Расход</option>
-            </select>
-            <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            </Select>
+          </Field>
+
+          <Field label="Сумма">
+            <Input
+              type="number"
+              step="0.01"
+              inputMode="decimal"
+              value={form.amount}
+              onChange={(e) => setForm({ ...form, amount: e.target.value })}
+              required
+            />
+          </Field>
+
+          <Field label="Проект">
+            <Select value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })}>
               <option value="">Без проекта (общая операция компании)</option>
               {projects.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
               ))}
-            </select>
-            <select className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={categoryValueId} onChange={(e) => setCategoryValueId(e.target.value)}>
-              <option value="">Категория…</option>
-              {categories?.values.map((v) => (
-                <option key={v.id} value={v.id}>{v.name}</option>
-              ))}
-            </select>
-            <input type="number" step="0.01" className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Сумма" value={amount} onChange={(e) => setAmount(e.target.value)} required />
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-400">Дата начисления (для PnL)</label>
-              <input type="date" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={accrualDate} onChange={(e) => setAccrualDate(e.target.value)} required />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-400">Дата оплаты (для ДДС)</label>
-              <input type="date" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
-            </div>
-            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-3" placeholder="Описание" value={description} onChange={(e) => setDescription(e.target.value)} />
-            <button type="submit" className="w-fit rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
-              Сохранить
-            </button>
-          </form>
-        </Card>
-      )}
+            </Select>
+          </Field>
 
-      <Card>
-        <div className="overflow-x-auto -mx-4 px-4">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-slate-500">
-              <th className="py-2">Дата</th>
-              <th className="hidden py-2 sm:table-cell">Проект</th>
-              <th className="hidden py-2 md:table-cell">Категория</th>
-              <th className="py-2">Тип</th>
-              <th className="py-2">Сумма</th>
-            </tr>
-          </thead>
-          <tbody>
-            {operations.map((o) => (
-              <tr key={o.id} className="border-b border-slate-100">
-                <td className="py-2">{formatDate(o.accrualDate)}</td>
-                <td className="hidden py-2 sm:table-cell">{o.project?.name ?? "Компания"}</td>
-                <td className="hidden py-2 md:table-cell">{o.categoryValue?.name ?? "—"}</td>
-                <td className="py-2">{o.type === "INCOME" ? "Доход" : "Расход"}</td>
-                <td className={`py-2 font-medium ${o.type === "INCOME" ? "text-green-600" : "text-red-600"}`}>
-                  {o.type === "INCOME" ? "+" : "-"}{formatMoney(o.amount)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </div>
-      </Card>
+          <Field label="Категория">
+            <Select value={form.categoryValueId} onChange={(e) => setForm({ ...form, categoryValueId: e.target.value })}>
+              <option value="">Без категории</option>
+              {categories?.values.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label="Дата начисления" hint="Попадает в PnL">
+            <Input
+              type="date"
+              value={form.accrualDate}
+              onChange={(e) => setForm({ ...form, accrualDate: e.target.value })}
+              required
+            />
+          </Field>
+
+          <Field label="Дата оплаты" hint="Попадает в ДДС">
+            <Input type="date" value={form.paymentDate} onChange={(e) => setForm({ ...form, paymentDate: e.target.value })} />
+          </Field>
+
+          {form.type === "INCOME" && (
+            <>
+              <Field label="Доля вендора, %" hint="0 — для собственных услуг">
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  inputMode="numeric"
+                  value={form.vendorSharePercent}
+                  onChange={(e) => setForm({ ...form, vendorSharePercent: e.target.value })}
+                />
+              </Field>
+              <div className="flex items-end pb-2.5">
+                <Checkbox
+                  label="Облагается налогом"
+                  checked={form.taxable}
+                  onChange={(e) => setForm({ ...form, taxable: e.target.checked })}
+                />
+              </div>
+            </>
+          )}
+
+          <Field label="Описание" className="sm:col-span-2">
+            <Input
+              placeholder="Например: оплата лицензии за сентябрь"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
+          </Field>
+        </form>
+      </Modal>
     </div>
   );
 }

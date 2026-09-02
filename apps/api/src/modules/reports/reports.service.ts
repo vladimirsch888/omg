@@ -1,5 +1,7 @@
 import { prisma } from "../../prisma";
+import { config } from "../../config";
 import { getProjectAndDescendantIds } from "../projects/projects.service";
+import { computeWaterfall } from "../finance/waterfall";
 
 export interface ReportFilters {
   from?: string;
@@ -12,19 +14,30 @@ function monthKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
-async function resolveProjectIds(
+/**
+ * Builds the Operation `where` fragment for a project or client scope, or
+ * undefined for no scoping. A project filter matches only that project (and
+ * its subprojects). A client filter must match an operation attributed to
+ * the client via ANY path — its projects, its subscriptions, or its sales —
+ * since project is optional on both subscriptions and sales and a
+ * project-only filter would silently drop that revenue.
+ */
+async function resolveScopeWhere(
   organizationId: string,
   filters: ReportFilters
-): Promise<string[] | undefined> {
+): Promise<Record<string, unknown> | undefined> {
   if (filters.projectId) {
-    return getProjectAndDescendantIds(organizationId, filters.projectId);
+    const projectIds = await getProjectAndDescendantIds(organizationId, filters.projectId);
+    return { projectId: { in: projectIds } };
   }
   if (filters.clientId) {
-    const projects = await prisma.project.findMany({
-      where: { organizationId, clientId: filters.clientId },
-      select: { id: true },
-    });
-    return projects.map((p) => p.id);
+    return {
+      OR: [
+        { project: { clientId: filters.clientId } },
+        { subscription: { clientId: filters.clientId } },
+        { sale: { clientId: filters.clientId } },
+      ],
+    };
   }
   return undefined;
 }
@@ -35,12 +48,12 @@ async function resolveProjectIds(
  * their parent automatically when filtering by projectId.
  */
 export async function getPnL(organizationId: string, filters: ReportFilters) {
-  const projectIds = await resolveProjectIds(organizationId, filters);
+  const scopeWhere = await resolveScopeWhere(organizationId, filters);
 
   const operations = await prisma.operation.findMany({
     where: {
       organizationId,
-      ...(projectIds ? { projectId: { in: projectIds } } : {}),
+      ...(scopeWhere ?? {}),
       ...(filters.from || filters.to
         ? {
             accrualDate: {
@@ -109,14 +122,14 @@ export async function getPnL(organizationId: string, filters: ReportFilters) {
  * cumulative balance.
  */
 export async function getDDS(organizationId: string, filters: ReportFilters) {
-  const projectIds = await resolveProjectIds(organizationId, filters);
+  const scopeWhere = await resolveScopeWhere(organizationId, filters);
 
   const operations = await prisma.operation.findMany({
     where: {
       organizationId,
       status: "ACTUAL",
       paymentDate: { not: null },
-      ...(projectIds ? { projectId: { in: projectIds } } : {}),
+      ...(scopeWhere ?? {}),
       ...(filters.from || filters.to
         ? {
             paymentDate: {
@@ -159,29 +172,58 @@ export async function getDDS(organizationId: string, filters: ReportFilters) {
   };
 }
 
-/** Lifetime value for every client (or one client), based on net operations to date. */
+/**
+ * Lifetime value for every client (or one client), based on net operations
+ * to date. An operation counts toward a client if it's tied to one of that
+ * client's projects OR (regardless of project) to one of their subscriptions
+ * or sales — a subscription/sale created without a project (project is
+ * optional on both) must still be attributed, or its revenue would be
+ * invisible here even though the client is unambiguous.
+ */
 export async function getClientLTV(organizationId: string, clientId?: string) {
   const clients = await prisma.client.findMany({
     where: { organizationId, ...(clientId ? { id: clientId } : {}) },
-    include: {
-      projects: {
-        select: {
-          id: true,
-          operations: { select: { type: true, amount: true, accrualDate: true } },
-        },
-      },
+    select: { id: true, name: true, status: true },
+  });
+  if (clients.length === 0) return [];
+
+  const clientIds = clients.map((c) => c.id);
+  const operations = await prisma.operation.findMany({
+    where: {
+      organizationId,
+      OR: [
+        { project: { clientId: { in: clientIds } } },
+        { subscription: { clientId: { in: clientIds } } },
+        { sale: { clientId: { in: clientIds } } },
+      ],
+    },
+    select: {
+      type: true,
+      amount: true,
+      accrualDate: true,
+      project: { select: { clientId: true } },
+      subscription: { select: { clientId: true } },
+      sale: { select: { clientId: true } },
     },
   });
+
+  const opsByClient = new Map<string, typeof operations>();
+  for (const op of operations) {
+    const attributedClientId = op.project?.clientId ?? op.subscription?.clientId ?? op.sale?.clientId;
+    if (!attributedClientId) continue;
+    if (!opsByClient.has(attributedClientId)) opsByClient.set(attributedClientId, []);
+    opsByClient.get(attributedClientId)!.push(op);
+  }
 
   const now = new Date();
 
   const results = clients.map((client) => {
-    const operations = client.projects.flatMap((p) => p.operations);
+    const clientOperations = opsByClient.get(client.id) ?? [];
     let income = 0;
     let expense = 0;
     let firstDate: Date | null = null;
 
-    for (const op of operations) {
+    for (const op of clientOperations) {
       const amount = Number(op.amount);
       if (op.type === "INCOME") income += amount;
       else expense += amount;
@@ -237,5 +279,36 @@ export async function getCompanySummary(organizationId: string) {
     ddsTrend: trendDds.periods,
     topClients: ltv.slice(0, 10),
     hoursThisMonth: Number(hoursThisMonth._sum.hours ?? 0),
+  };
+}
+
+/**
+ * "Сколько денег у меня реально есть": cash actually in hand (income minus
+ * expenses on a cash basis, which already nets out vendor payouts recorded
+ * as real EXPENSE operations) minus the tax reserve accrued from taxable
+ * income — see apps/api/src/modules/finance/waterfall.ts.
+ */
+export async function getCashPosition(organizationId: string) {
+  const [dds, incomeOps] = await Promise.all([
+    getDDS(organizationId, {}),
+    prisma.operation.findMany({
+      where: { organizationId, type: "INCOME", status: "ACTUAL", paymentDate: { not: null } },
+      select: { amount: true, vendorSharePercent: true, taxable: true },
+    }),
+  ]);
+
+  let taxReserveAccrued = 0;
+  for (const op of incomeOps) {
+    const { taxReserve } = computeWaterfall(Number(op.amount), Number(op.vendorSharePercent), op.taxable);
+    taxReserveAccrued += taxReserve;
+  }
+
+  const cumulativeCash = dds.totals.endingBalance;
+
+  return {
+    cumulativeCash,
+    taxReserveAccrued,
+    spendable: cumulativeCash - taxReserveAccrued,
+    taxReservePercent: config.taxReservePercent,
   };
 }
