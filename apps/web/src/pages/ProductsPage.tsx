@@ -10,6 +10,7 @@ const emptyForm = {
   categoryValueId: "",
   defaultPrice: "",
   defaultDurationMonths: "1",
+  defaultWorkDays: "",
   defaultVendorSharePercent: "50",
   defaultTaxable: true,
 };
@@ -45,6 +46,7 @@ export function ProductsPage() {
       categoryValueId: p.categoryValueId ?? "",
       defaultPrice: String(p.defaultPrice),
       defaultDurationMonths: p.defaultDurationMonths != null ? String(p.defaultDurationMonths) : "1",
+      defaultWorkDays: p.defaultWorkDays != null ? String(p.defaultWorkDays) : "",
       defaultVendorSharePercent: String(p.defaultVendorSharePercent),
       defaultTaxable: p.defaultTaxable,
     });
@@ -69,6 +71,7 @@ export function ProductsPage() {
       categoryValueId: form.categoryValueId || undefined,
       defaultPrice: Number(form.defaultPrice),
       defaultDurationMonths: form.type === "LICENSE" ? Number(form.defaultDurationMonths) : undefined,
+      defaultWorkDays: form.type === "WORK" && form.defaultWorkDays ? Number(form.defaultWorkDays) : undefined,
       defaultVendorSharePercent: Number(form.defaultVendorSharePercent),
       defaultTaxable: form.defaultTaxable,
     };
@@ -132,6 +135,12 @@ export function ProductsPage() {
                 <input type="number" min="1" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.defaultDurationMonths} onChange={(e) => setForm({ ...form, defaultDurationMonths: e.target.value })} required />
               </div>
             )}
+            {form.type === "WORK" && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-slate-400">Срок выполнения, раб. дней</label>
+                <input type="number" min="1" className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Необязательно" value={form.defaultWorkDays} onChange={(e) => setForm({ ...form, defaultWorkDays: e.target.value })} />
+              </div>
+            )}
             <div className="flex flex-col gap-1">
               <label className="text-xs text-slate-400">Доля вендора, %</label>
               <input type="number" min="0" max="100" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.defaultVendorSharePercent} onChange={(e) => setForm({ ...form, defaultVendorSharePercent: e.target.value })} required />
@@ -167,7 +176,9 @@ export function ProductsPage() {
                   <td className="py-2">{p.name}</td>
                   <td className="hidden py-2 sm:table-cell">{p.categoryValue?.name ?? "—"}</td>
                   <td className="py-2">{formatMoney(p.defaultPrice)}</td>
-                  <td className="hidden py-2 md:table-cell">{p.type === "WORK" ? "разовая работа" : `${p.defaultDurationMonths} мес.`}</td>
+                  <td className="hidden py-2 md:table-cell">
+                    {p.type === "WORK" ? (p.defaultWorkDays ? `~${p.defaultWorkDays} раб. дн.` : "разовая работа") : `${p.defaultDurationMonths} мес.`}
+                  </td>
                   <td className="hidden py-2 md:table-cell">{p.defaultVendorSharePercent}%</td>
                   <td className="py-2">
                     <button onClick={() => toggleActive(p.id, p.isActive)} className={`rounded px-2 py-1 text-xs ${p.isActive ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>

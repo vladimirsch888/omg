@@ -195,6 +195,12 @@ model LicenseProduct {
   defaultVendorSharePercent Decimal @db.Decimal(5, 2) @default(50)
   defaultTaxable            Boolean @default(true)
 
+  // Mirror of defaultDurationMonths for a WORK product: an estimated
+  // execution time in working days, used to prefill and auto-calculate a
+  // Sale's workEndDate ("Дата окончания работ") from the sale date. Null
+  // for LICENSE (has no notion of "working days to finish").
+  defaultWorkDays Int?
+
   isActive  Boolean  @default(true)
   isDemo    Boolean  @default(false)
   createdAt DateTime @default(now())

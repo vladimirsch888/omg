@@ -31,6 +31,8 @@ const productSchema = z.object({
   categoryValueId: z.string().uuid().optional().nullable(),
   defaultPrice: z.number().positive(),
   defaultDurationMonths: z.number().int().positive().optional().nullable(),
+  // Estimated execution time in working days — only meaningful for WORK.
+  defaultWorkDays: z.number().int().positive().optional().nullable(),
   defaultVendorSharePercent: z.number().min(0).max(100).default(50),
   defaultTaxable: z.boolean().default(true),
 });
@@ -39,8 +41,9 @@ licenseProductsRouter.post("/", requireRole("OWNER", "ADMIN"), async (c) => {
   const auth = c.get("auth");
   const body = productSchema.parse(await c.req.json());
   const defaultDurationMonths = body.type === "WORK" ? null : (body.defaultDurationMonths ?? 1);
+  const defaultWorkDays = body.type === "WORK" ? (body.defaultWorkDays ?? null) : null;
   const product = await prisma.licenseProduct.create({
-    data: { ...body, organizationId: auth.organizationId, defaultDurationMonths },
+    data: { ...body, organizationId: auth.organizationId, defaultDurationMonths, defaultWorkDays },
   });
   return c.json(product, 201);
 });
@@ -59,6 +62,9 @@ licenseProductsRouter.patch("/:id", requireRole("OWNER", "ADMIN"), async (c) => 
     data.defaultDurationMonths = null;
   } else if (body.defaultDurationMonths === undefined && product.defaultDurationMonths == null) {
     data.defaultDurationMonths = 1;
+  }
+  if (effectiveType === "LICENSE") {
+    data.defaultWorkDays = null;
   }
 
   const updated = await prisma.licenseProduct.update({ where: { id: product.id }, data });

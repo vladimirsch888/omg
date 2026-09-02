@@ -238,6 +238,7 @@ export async function seedDemoData(organizationId: string, userId: string) {
       categoryValueId: dict.category.client_work ?? null,
       defaultPrice: 180000,
       defaultDurationMonths: null,
+      defaultWorkDays: 20,
       defaultVendorSharePercent: 0,
       defaultTaxable: true,
     },

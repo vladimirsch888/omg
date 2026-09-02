@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { Client, LicenseProduct, Project, Sale } from "../api/types";
 import { Card } from "../components/Card";
-import { formatMoney, formatDate } from "../utils/format";
+import { formatMoney, formatDate, addWorkingDays } from "../utils/format";
 
 const emptyForm = {
   clientId: "",
@@ -10,8 +10,15 @@ const emptyForm = {
   licenseProductId: "",
   amount: "",
   saleDate: new Date().toISOString().slice(0, 10),
+  workDays: "",
   workEndDate: "",
 };
+
+function computeWorkEndDate(saleDate: string, workDays: string): string {
+  const days = Number(workDays);
+  if (!saleDate || !days || days <= 0) return "";
+  return addWorkingDays(new Date(saleDate), days).toISOString().slice(0, 10);
+}
 
 export function SalesPage() {
   const [sales, setSales] = useState<Sale[]>([]);
@@ -41,7 +48,26 @@ export function SalesPage() {
 
   function onSelectProduct(licenseProductId: string) {
     const product = products.find((p) => p.id === licenseProductId);
-    setForm({ ...form, licenseProductId, amount: product ? String(product.defaultPrice) : form.amount });
+    if (product?.type === "WORK") {
+      const workDays = product.defaultWorkDays != null ? String(product.defaultWorkDays) : "";
+      setForm({
+        ...form,
+        licenseProductId,
+        amount: product ? String(product.defaultPrice) : form.amount,
+        workDays,
+        workEndDate: computeWorkEndDate(form.saleDate, workDays),
+      });
+    } else {
+      setForm({ ...form, licenseProductId, amount: product ? String(product.defaultPrice) : form.amount, workDays: "", workEndDate: "" });
+    }
+  }
+
+  function onChangeSaleDate(saleDate: string) {
+    setForm({ ...form, saleDate, workEndDate: form.workDays ? computeWorkEndDate(saleDate, form.workDays) : form.workEndDate });
+  }
+
+  function onChangeWorkDays(workDays: string) {
+    setForm({ ...form, workDays, workEndDate: computeWorkEndDate(form.saleDate, workDays) });
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -102,13 +128,20 @@ export function SalesPage() {
             <input type="number" step="0.01" className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Сумма продажи" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required />
             <div className="flex flex-col gap-1">
               <label className="text-xs text-slate-400">Дата продажи</label>
-              <input type="date" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.saleDate} onChange={(e) => setForm({ ...form, saleDate: e.target.value })} required />
+              <input type="date" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.saleDate} onChange={(e) => onChangeSaleDate(e.target.value)} required />
             </div>
             {selectedProduct?.type === "WORK" && (
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-400">Дата окончания работ</label>
-                <input type="date" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.workEndDate} onChange={(e) => setForm({ ...form, workEndDate: e.target.value })} required />
-              </div>
+              <>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-slate-400">Срок выполнения, раб. дней</label>
+                  <input type="number" min="1" className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Например, 20" value={form.workDays} onChange={(e) => onChangeWorkDays(e.target.value)} />
+                  <span className="text-xs text-slate-400">считает без выходных, подставляет дату справа</span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-slate-400">Дата окончания работ</label>
+                  <input type="date" className="rounded-md border border-slate-300 px-3 py-2 text-sm" value={form.workEndDate} onChange={(e) => setForm({ ...form, workEndDate: e.target.value })} required />
+                </div>
+              </>
             )}
             {selectedProduct && (
               <div className="flex items-center text-xs text-slate-400 sm:col-span-1">

@@ -150,6 +150,7 @@ export interface LicenseProduct {
   categoryValue?: DictionaryValue | null;
   defaultPrice: string | number;
   defaultDurationMonths?: number | null;
+  defaultWorkDays?: number | null;
   defaultVendorSharePercent: string | number;
   defaultTaxable: boolean;
   isActive: boolean;
