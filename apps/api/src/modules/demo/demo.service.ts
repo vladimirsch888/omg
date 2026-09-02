@@ -310,6 +310,18 @@ export async function seedDemoData(organizationId: string, userId: string) {
   // Paid straight to a personal card: vendor still takes its 50%, but no tax reserve is set aside.
   subscriptionOperationsCount += await seedSubscription(clientTechnopark.id, projectByKey.technopark, productWazzupCard, 3);
 
+  // Put one subscription into the "счёт отправлен" stage so the yellow
+  // highlight and the invoice badge are visible in a fresh demo.
+  const invoicedSubscription = await prisma.subscription.findFirst({
+    where: { organizationId, isDemo: true, clientId: clientSfera.id },
+  });
+  if (invoicedSubscription) {
+    await prisma.subscription.update({
+      where: { id: invoicedSubscription.id },
+      data: { invoiceSentAt: dateInPast(0, 2) },
+    });
+  }
+
   // One-off sales ("Продажи") — unlike a subscription, these book their
   // operations once, right away, with no billing cycle. `projectId: null`
   // is used deliberately below: a sale (like a subscription) always has a

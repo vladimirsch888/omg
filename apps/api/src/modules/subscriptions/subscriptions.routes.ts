@@ -140,6 +140,40 @@ subscriptionsRouter.post("/:id/bill", async (c) => {
   return c.json(result, 201);
 });
 
+/**
+ * "Счёт отправлен" — the preparation stage before renewing: the invoice for
+ * the upcoming period has gone to the client, but the money hasn't arrived,
+ * so nothing is booked yet. POST marks it (stamping the date), DELETE undoes
+ * a misclick. Renewing clears it on its own (see billSubscription).
+ */
+subscriptionsRouter.post("/:id/invoice-sent", async (c) => {
+  const auth = c.get("auth");
+  const subscription = await prisma.subscription.findFirst({
+    where: { id: c.req.param("id"), organizationId: auth.organizationId },
+  });
+  if (!subscription) throw new AppError(404, "Подписка не найдена");
+
+  const updated = await prisma.subscription.update({
+    where: { id: subscription.id },
+    data: { invoiceSentAt: new Date() },
+  });
+  return c.json(updated);
+});
+
+subscriptionsRouter.delete("/:id/invoice-sent", async (c) => {
+  const auth = c.get("auth");
+  const subscription = await prisma.subscription.findFirst({
+    where: { id: c.req.param("id"), organizationId: auth.organizationId },
+  });
+  if (!subscription) throw new AppError(404, "Подписка не найдена");
+
+  const updated = await prisma.subscription.update({
+    where: { id: subscription.id },
+    data: { invoiceSentAt: null },
+  });
+  return c.json(updated);
+});
+
 const updateSchema = z.object({
   status: z.enum(["ACTIVE", "PAUSED", "CANCELLED"]).optional(),
   price: z.number().positive().optional(),

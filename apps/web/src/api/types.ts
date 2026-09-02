@@ -172,6 +172,8 @@ export interface Subscription {
   status: "ACTIVE" | "PAUSED" | "CANCELLED";
   startDate: string;
   nextBillingDate: string;
+  /** Set once the invoice for the upcoming period is sent; cleared on renewal. */
+  invoiceSentAt?: string | null;
   operations?: Operation[];
 }
 
@@ -209,8 +211,23 @@ export interface SalesPlanReport {
   year: number;
   annualPlan: number | null;
   monthlyPlanTotal: number;
-  months: { month: number; plan: number | null; fact: number; netProfit: number }[];
-  totals: { fact: number; netProfit: number; completionPercent: number | null };
+  months: {
+    month: number;
+    plan: number | null;
+    fact: number;
+    netProfit: number;
+    /** Still expected this month from active subscriptions. */
+    subscriptionForecast: number;
+  }[];
+  totals: {
+    fact: number;
+    netProfit: number;
+    completionPercent: number | null;
+    subscriptionForecast: number;
+    /** fact + subscriptionForecast — where the year lands with no new sales. */
+    forecast: number;
+    forecastPercent: number | null;
+  };
   profitMix: { license: number; work: number; other: number; total: number };
 }
 

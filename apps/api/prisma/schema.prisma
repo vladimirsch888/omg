@@ -243,6 +243,13 @@ model Subscription {
   startDate       DateTime
   nextBillingDate DateTime
 
+  /// When the invoice for the upcoming period was sent to the client — the
+  /// preparation stage before "Продлить". A date rather than a flag so the
+  /// list can show how long the client has been sitting on it. Cleared by
+  /// billSubscription: once the period is billed, the stage is over and the
+  /// next cycle starts with no invoice out.
+  invoiceSentAt DateTime?
+
   isDemo    Boolean  @default(false)
   createdAt DateTime @default(now())
 

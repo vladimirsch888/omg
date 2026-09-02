@@ -15,6 +15,12 @@ export interface SalesPlanMonth {
   plan: number | null;
   fact: number;
   netProfit: number;
+  /**
+   * Money still expected this month from active subscriptions that haven't
+   * been billed yet — the recurring part of the year that can be predicted
+   * from the billing schedule rather than hoped for.
+   */
+  subscriptionForecast: number;
 }
 
 export interface SalesPlanReport {
@@ -28,6 +34,12 @@ export interface SalesPlanReport {
     netProfit: number;
     /** Fact against the annual plan, or against the monthly total if no annual plan is set. */
     completionPercent: number | null;
+    /** Everything still expected from active subscriptions before the year ends. */
+    subscriptionForecast: number;
+    /** fact + subscriptionForecast — where the year lands if nothing else is sold. */
+    forecast: number;
+    /** That forecast against the same target as completionPercent. */
+    forecastPercent: number | null;
   };
   profitMix: {
     license: number;
@@ -109,7 +121,7 @@ export async function getSalesPlanReport(organizationId: string, year: number): 
   const yearStart = new Date(year, 0, 1);
   const yearEnd = new Date(year + 1, 0, 1);
 
-  const [plans, operations, categoryKinds] = await Promise.all([
+  const [plans, operations, categoryKinds, activeSubscriptions] = await Promise.all([
     prisma.salesPlan.findMany({ where: { organizationId, year } }),
     prisma.operation.findMany({
       where: {
@@ -128,6 +140,10 @@ export async function getSalesPlanReport(organizationId: string, year: number): 
       },
     }),
     getCategoryKinds(organizationId),
+    prisma.subscription.findMany({
+      where: { organizationId, status: "ACTIVE", nextBillingDate: { lt: yearEnd } },
+      select: { price: true, durationMonths: true, nextBillingDate: true },
+    }),
   ]);
 
   const annualPlan = plans.find((p) => p.month === null);
@@ -141,6 +157,7 @@ export async function getSalesPlanReport(organizationId: string, year: number): 
     plan: planByMonth.get(i + 1) ?? null,
     fact: 0,
     netProfit: 0,
+    subscriptionForecast: 0,
   }));
 
   const profitMix = { license: 0, work: 0, other: 0, total: 0 };
@@ -161,8 +178,11 @@ export async function getSalesPlanReport(organizationId: string, year: number): 
   }
   profitMix.total = profitMix.license + profitMix.work + profitMix.other;
 
+  const forecastTotal = addSubscriptionForecast(months, activeSubscriptions, year);
+
   const monthlyPlanTotal = months.reduce((sum, m) => sum + (m.plan ?? 0), 0);
   const target = annualPlan ? Number(annualPlan.amount) : monthlyPlanTotal;
+  const forecast = factTotal + forecastTotal;
 
   return {
     year,
@@ -173,9 +193,60 @@ export async function getSalesPlanReport(organizationId: string, year: number): 
       fact: factTotal,
       netProfit: netProfitTotal,
       completionPercent: target > 0 ? Math.round((factTotal / target) * 100) : null,
+      subscriptionForecast: forecastTotal,
+      forecast,
+      forecastPercent: target > 0 ? Math.round((forecast / target) * 100) : null,
     },
     profitMix,
   };
+}
+
+/**
+ * Walks each active subscription's billing schedule to the end of the year and
+ * books every not-yet-billed period into the month it falls in. This is the
+ * predictable part of future revenue: a subscription with a known price and
+ * cycle will bill again whether or not anyone sells anything new.
+ *
+ * Two deliberate rules:
+ *   - only the current month onwards is projected; past months already show
+ *     what actually happened, and mixing a forecast into them would make the
+ *     plan-vs-fact history lie;
+ *   - an overdue subscription (nextBillingDate already passed) is projected
+ *     into the current month, since that money is still expected now — the
+ *     same treatment the subscriptions page gives overdue renewals.
+ *
+ * Returns the total added, and mutates `months` in place.
+ */
+function addSubscriptionForecast(
+  months: SalesPlanMonth[],
+  subscriptions: { price: unknown; durationMonths: number; nextBillingDate: Date }[],
+  year: number
+): number {
+  const now = new Date();
+  const currentMonthIndex = now.getFullYear() === year ? now.getMonth() : now.getFullYear() < year ? 0 : 12;
+  if (currentMonthIndex >= 12) return 0; // the year is entirely in the past
+
+  let total = 0;
+  for (const subscription of subscriptions) {
+    const price = Number(subscription.price);
+    const duration = subscription.durationMonths;
+    if (!(price > 0) || !(duration > 0)) continue;
+
+    const due = new Date(subscription.nextBillingDate);
+    // Guard against a pathological schedule producing an endless walk.
+    for (let period = 0; period < 24 && due.getFullYear() <= year; period++) {
+      if (due.getFullYear() === year) {
+        const monthIndex = Math.max(due.getMonth(), currentMonthIndex);
+        if (monthIndex < 12) {
+          months[monthIndex].subscriptionForecast += price;
+          total += price;
+        }
+      }
+      due.setMonth(due.getMonth() + duration);
+      if (due.getFullYear() > year) break;
+    }
+  }
+  return total;
 }
 
 /**

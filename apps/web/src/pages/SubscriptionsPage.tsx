@@ -1,5 +1,16 @@
 import { FormEvent, useEffect, useState } from "react";
-import { CalendarClock, CreditCard, Pencil, Plus, RefreshCw, Trash2, TrendingUp, Wallet } from "lucide-react";
+import {
+  CalendarClock,
+  CreditCard,
+  FileCheck2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+  TrendingUp,
+  Undo2,
+  Wallet,
+} from "lucide-react";
 import { api } from "../api/client";
 import { Client, LicenseProduct, Project, Subscription, SubscriptionMonthSummary } from "../api/types";
 import {
@@ -193,6 +204,30 @@ export function SubscriptionsPage() {
     load();
   }
 
+  /**
+   * Marks (or un-marks) the "счёт отправлен" stage: the invoice for the next
+   * period has gone out but the money hasn't arrived, so nothing is booked —
+   * the row just gets flagged until "Продлить" closes the cycle.
+   */
+  async function handleInvoiceSent(s: Subscription) {
+    const sent = Boolean(s.invoiceSentAt);
+    setBusyId(s.id);
+    try {
+      if (sent) {
+        await api.delete(`/subscriptions/${s.id}/invoice-sent`);
+        ui.toast("Отметка о счёте снята", "success");
+      } else {
+        await api.post(`/subscriptions/${s.id}/invoice-sent`);
+        ui.toast(`Счёт отправлен: ${s.client?.name}`, "success");
+      }
+      load();
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось изменить отметку о счёте", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function handleDelete(s: Subscription) {
     const confirmed = await ui.confirm({
       title: "Удалить подписку?",
@@ -215,6 +250,14 @@ export function SubscriptionsPage() {
       ? Math.round((monthSummary.renewedAmount / monthSummary.totalExpected) * 100)
       : 0;
 
+  const invoiceBadge = (s: Subscription) =>
+    s.invoiceSentAt ? (
+      <Badge tone="reserve">
+        <FileCheck2 className="size-3" strokeWidth={1.9} />
+        счёт от {formatDate(s.invoiceSentAt)}
+      </Badge>
+    ) : null;
+
   const columns: Column<Subscription>[] = [
     {
       key: "client",
@@ -225,6 +268,7 @@ export function SubscriptionsPage() {
     {
       key: "product",
       header: "Продукт",
+      width: "26%",
       render: (s) => (
         <span className="flex items-center gap-1.5 text-ink-muted">
           {s.licenseProduct?.name}
@@ -250,16 +294,22 @@ export function SubscriptionsPage() {
       header: "Платёж",
       nowrap: true,
       render: (s) => (
-        <Badge tone={dueTone(s.nextBillingDate)}>
-          <CalendarClock className="size-3" strokeWidth={1.9} />
-          {formatDate(s.nextBillingDate)}
-        </Badge>
+        <div className="flex flex-col items-start gap-1">
+          <Badge tone={dueTone(s.nextBillingDate)}>
+            <CalendarClock className="size-3" strokeWidth={1.9} />
+            {formatDate(s.nextBillingDate)}
+          </Badge>
+          {invoiceBadge(s)}
+        </div>
       ),
     },
     {
       key: "status",
       header: "Статус",
       hideBelow: "lg",
+      // Without a width the select collapses to just its chevron once the
+      // row carries the invoice action too.
+      width: "14%",
       render: (s) => (
         <SelectCompact value={s.status} onChange={(e) => handleStatusChange(s.id, e.target.value as Subscription["status"])}>
           <option value="ACTIVE">{statusLabel.ACTIVE}</option>
@@ -274,6 +324,13 @@ export function SubscriptionsPage() {
       align: "right",
       render: (s) => (
         <div className="flex items-center justify-end gap-1">
+          <IconButton
+            icon={s.invoiceSentAt ? Undo2 : FileCheck2}
+            label={s.invoiceSentAt ? "Снять отметку о счёте" : "Счёт отправлен"}
+            disabled={s.status !== "ACTIVE" || busyId === s.id}
+            onClick={() => handleInvoiceSent(s)}
+            className="hover:text-reserve"
+          />
           <Button
             size="sm"
             variant="primary"
@@ -351,8 +408,12 @@ export function SubscriptionsPage() {
           rows={subscriptions}
           columns={columns}
           getRowKey={(s) => s.id}
+          // Invoice sent, money not in yet — the brand's yellow marks the row
+          // as "waiting on the client" until Продлить closes the cycle.
+          rowClassName={(s) => (s.invoiceSentAt ? "bg-reserve-soft hover:bg-reserve-soft" : "")}
           renderCard={(s) => (
             <RowCard
+              highlight={Boolean(s.invoiceSentAt)}
               title={s.client?.name ?? "—"}
               subtitle={s.licenseProduct?.name}
               value={formatMoney(s.price)}
@@ -363,12 +424,22 @@ export function SubscriptionsPage() {
                     {formatDate(s.nextBillingDate)}
                   </Badge>
                   <StatusBadge label={statusLabel[s.status]} tone={statusTone[s.status]} />
+                  {invoiceBadge(s)}
                   {!s.taxable && <Badge tone="reserve">на карту</Badge>}
                   <MetaItem label="Срок">{s.durationMonths} мес.</MetaItem>
                 </>
               }
               actions={
                 <>
+                  <Button
+                    size="sm"
+                    variant={s.invoiceSentAt ? "ghost" : "secondary"}
+                    icon={s.invoiceSentAt ? Undo2 : FileCheck2}
+                    disabled={s.status !== "ACTIVE" || busyId === s.id}
+                    onClick={() => handleInvoiceSent(s)}
+                  >
+                    {s.invoiceSentAt ? "Снять счёт" : "Счёт отправлен"}
+                  </Button>
                   <Button
                     size="sm"
                     variant="primary"

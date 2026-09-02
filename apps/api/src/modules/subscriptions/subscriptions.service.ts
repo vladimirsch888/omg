@@ -107,6 +107,9 @@ export async function billSubscription(
     where: { id: subscription.id },
     data: {
       nextBillingDate: addMonths(subscription.nextBillingDate, subscription.durationMonths),
+      // The "счёт отправлен" stage ends with the billing it was preparing —
+      // the next period starts again with no invoice out.
+      invoiceSentAt: null,
       ...(priceOverride !== undefined ? { price: priceOverride } : {}),
     },
   });

@@ -1,5 +1,5 @@
 import { FormEvent, lazy, useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Coins, Split, Target, TrendingUp, Wand2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Coins, Repeat, Split, Target, TrendingUp, Wand2 } from "lucide-react";
 import { api } from "../api/client";
 import { SalesPlanReport } from "../api/types";
 import {
@@ -78,6 +78,7 @@ export function SalesPlanPage() {
         month: monthShort[m.month - 1],
         План: m.plan,
         Факт: m.fact,
+        Прогноз: m.subscriptionForecast,
       })),
     [report]
   );
@@ -124,7 +125,6 @@ export function SalesPlanPage() {
   if (!report) return <PageSkeleton stats={4} rows={6} />;
 
   const target = report.annualPlan ?? report.monthlyPlanTotal;
-  const remaining = Math.max(0, target - report.totals.fact);
   const thisMonth = year === currentYear ? report.months[currentMonth - 1] : null;
   const maxValue = Math.max(...report.months.map((m) => Math.max(m.fact, m.plan ?? 0)), 1);
 
@@ -230,38 +230,42 @@ export function SalesPlanPage() {
         />
         <StatCard label="Факт за год" value={formatMoney(report.totals.fact)} icon={Coins} />
         <StatCard
-          label="Выполнение плана"
-          value={report.totals.completionPercent === null ? "—" : `${report.totals.completionPercent}%`}
+          label="Прогноз с учётом подписок"
+          value={formatMoney(report.totals.forecast)}
           tone={
-            report.totals.completionPercent !== null && report.totals.completionPercent >= 100 ? "income" : "reserve"
+            report.totals.forecastPercent !== null && report.totals.forecastPercent >= 100 ? "income" : "reserve"
           }
-          icon={TrendingUp}
-          wide
-          chart={
-            target > 0 ? (
-              <div className="flex h-full flex-col justify-center gap-1.5">
-                <InlineBar value={report.totals.fact} max={target} tone="income" />
-                <div className="flex justify-between text-[10px] text-ink-subtle">
-                  <span>{formatMoney(report.totals.fact)}</span>
-                  <span>осталось {formatMoney(remaining)}</span>
-                </div>
-              </div>
-            ) : undefined
-          }
+          icon={Repeat}
+          hint={`Факт плюс ${formatMoney(report.totals.subscriptionForecast)} — активные подписки до конца года${
+            report.totals.forecastPercent !== null ? `, это ${report.totals.forecastPercent}% плана` : ""
+          }`}
         />
         <StatCard
-          label={thisMonth ? `План на ${monthNames[currentMonth - 1].toLowerCase()}` : "Чистая прибыль за год"}
-          value={
-            thisMonth
-              ? thisMonth.plan === null
-                ? "не задан"
-                : formatMoney(thisMonth.plan)
-              : formatMoney(report.totals.netProfit)
-          }
-          icon={Coins}
-          hint={thisMonth ? `Факт за месяц: ${formatMoney(thisMonth.fact)}` : undefined}
+          label="Чистая прибыль за год"
+          value={formatMoney(report.totals.netProfit)}
+          icon={TrendingUp}
+          hint="Выручка минус доля вендора и налоговый резерв"
         />
       </div>
+
+      {/* Both scales in one place: the year, and the month you're actually in. */}
+      <Card title="Выполнение плана">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+          <PlanProgress
+            label={`Годовой план ${year}`}
+            fact={report.totals.fact}
+            forecast={report.totals.subscriptionForecast}
+            plan={target > 0 ? target : null}
+          />
+          <PlanProgress
+            label={thisMonth ? `План на ${monthNames[currentMonth - 1].toLowerCase()}` : "Текущий месяц"}
+            fact={thisMonth?.fact ?? 0}
+            forecast={thisMonth?.subscriptionForecast ?? 0}
+            plan={thisMonth?.plan ?? null}
+            emptyHint={thisMonth ? undefined : `${year} год — не текущий, месячная шкала считается по текущему месяцу`}
+          />
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-3">
         <Card title="План и факт по месяцам" className="xl:col-span-2">
@@ -363,6 +367,72 @@ export function SalesPlanPage() {
           </div>
         </form>
       </Modal>
+    </div>
+  );
+}
+
+/**
+ * One target, one bar: what's already earned (solid) plus what active
+ * subscriptions are still scheduled to bill (translucent), against the plan.
+ * The two segments are drawn as one bar so the reader sees where the period
+ * lands if nothing new is sold — the question a plan is set to answer.
+ */
+function PlanProgress({
+  label,
+  fact,
+  forecast,
+  plan,
+  emptyHint,
+}: {
+  label: string;
+  fact: number;
+  forecast: number;
+  plan: number | null;
+  emptyHint?: string;
+}) {
+  if (!plan || plan <= 0) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-ink-muted">{label}</span>
+        <span className="text-sm text-ink-subtle">{emptyHint ?? "План не задан"}</span>
+      </div>
+    );
+  }
+
+  const factPercent = Math.round((fact / plan) * 100);
+  const forecastPercent = Math.round(((fact + forecast) / plan) * 100);
+  const remaining = Math.max(0, plan - fact - forecast);
+  // Segments are capped together so an overshoot fills the bar instead of
+  // overflowing it; the number above still shows the real percentage.
+  const factWidth = Math.min(100, factPercent);
+  const forecastWidth = Math.max(0, Math.min(100 - factWidth, forecastPercent - factPercent));
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-xs font-medium text-ink-muted">{label}</span>
+        <span className={`text-sm font-semibold tnum ${factPercent >= 100 ? "text-income" : "text-ink"}`}>
+          {factPercent}%
+        </span>
+      </div>
+
+      <div className="flex h-2 overflow-hidden rounded-full bg-raised">
+        <div className={factPercent >= 100 ? "bg-income" : "bg-accent"} style={{ width: `${factWidth}%` }} />
+        <div className="bg-accent/35" style={{ width: `${forecastWidth}%` }} />
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-ink-subtle">
+        <span className="tnum">
+          {formatMoney(fact)} из {formatMoney(plan)}
+        </span>
+        {forecast > 0 ? (
+          <span className="tnum">
+            +{formatMoney(forecast)} по подпискам → {forecastPercent}%
+          </span>
+        ) : (
+          <span className="tnum">{remaining > 0 ? `осталось ${formatMoney(remaining)}` : "план выполнен"}</span>
+        )}
+      </div>
     </div>
   );
 }

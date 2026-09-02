@@ -24,12 +24,15 @@ export function DataTable<T>({
   getRowKey,
   renderCard,
   empty,
+  rowClassName,
 }: {
   rows: T[];
   columns: Column<T>[];
   getRowKey: (row: T) => string;
   renderCard: (row: T) => ReactNode;
   empty?: ReactNode;
+  /** Extra classes for one row — used to tint rows that need attention. */
+  rowClassName?: (row: T) => string;
 }) {
   if (rows.length === 0 && empty) return <>{empty}</>;
 
@@ -67,7 +70,9 @@ export function DataTable<T>({
             {rows.map((row) => (
               <tr
                 key={getRowKey(row)}
-                className="border-b border-line/60 transition-colors duration-100 last:border-0 hover:bg-raised/50"
+                className={`border-b border-line/60 transition-colors duration-100 last:border-0 hover:bg-raised/50 ${
+                  rowClassName?.(row) ?? ""
+                }`}
               >
                 {columns.map((c) => (
                   <td
@@ -99,6 +104,7 @@ export function RowCard({
   valueTone = "neutral",
   meta,
   actions,
+  highlight = false,
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
@@ -106,11 +112,17 @@ export function RowCard({
   valueTone?: "neutral" | "income" | "expense";
   meta?: ReactNode;
   actions?: ReactNode;
+  /** Tints the card to match a highlighted table row. */
+  highlight?: boolean;
 }) {
   const tone =
     valueTone === "income" ? "text-income" : valueTone === "expense" ? "text-expense" : "text-ink";
   return (
-    <div className="rounded-xl border border-line bg-surface p-3.5">
+    <div
+      className={`rounded-xl border p-3.5 ${
+        highlight ? "border-reserve/30 bg-reserve-soft" : "border-line bg-surface"
+      }`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-medium text-ink">{title}</div>
