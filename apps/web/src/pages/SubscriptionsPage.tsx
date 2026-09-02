@@ -116,10 +116,20 @@ export function SubscriptionsPage() {
     load();
   }
 
-  async function handleBill(id: string) {
-    setBusyId(id);
+  async function handleBill(s: Subscription) {
+    const input = window.prompt(
+      `Сумма продления «${s.licenseProduct?.name}» для клиента «${s.client?.name}». Если изменить — новая сумма закрепится и для следующих продлений.`,
+      String(s.price)
+    );
+    if (input === null) return;
+    const amount = Number(input.replace(",", "."));
+    if (!amount || amount <= 0) {
+      alert("Некорректная сумма");
+      return;
+    }
+    setBusyId(s.id);
     try {
-      await api.post(`/subscriptions/${id}/bill`);
+      await api.post(`/subscriptions/${s.id}/bill`, { amount });
       load();
     } finally {
       setBusyId(null);
@@ -153,8 +163,9 @@ export function SubscriptionsPage() {
       <p className="text-sm text-slate-500">
         Продажа лицензии клиенту с автоматическим расчётом: сумма от клиента → доля вендора списывается
         расходом → с остатка откладывается резерв на налог → остальное свободно. Когда наступает
-        следующий период — жмите «Выставить следующий платёж», это создаст операции за новый месяц
-        одной кнопкой, без повторного заполнения формы.
+        следующий период — жмите «Продлить»: система предложит подтвердить сумму (можно изменить, если
+        цена выросла или упала — новая сумма закрепится и для следующих продлений) и создаст операции
+        за новый период одной кнопкой, без повторного заполнения формы.
       </p>
 
       {showForm && (
@@ -266,11 +277,11 @@ export function SubscriptionsPage() {
                   <td className="py-2">
                     <div className="flex flex-wrap items-center gap-3">
                       <button
-                        onClick={() => handleBill(s.id)}
+                        onClick={() => handleBill(s)}
                         disabled={busyId === s.id || s.status !== "ACTIVE"}
                         className="rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-40"
                       >
-                        {busyId === s.id ? "…" : "Выставить платёж"}
+                        {busyId === s.id ? "…" : "Продлить"}
                       </button>
                       <button onClick={() => startEdit(s)} className="text-xs font-medium text-slate-600 hover:underline">
                         Редактировать

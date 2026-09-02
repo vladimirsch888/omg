@@ -104,9 +104,17 @@ subscriptionsRouter.post("/", async (c) => {
   return c.json(billed, 201);
 });
 
-// The one-button "duplicate to next period" action.
+const billSchema = z.object({
+  // Confirmed (or changed) on the "Продлить" prompt; when it differs from
+  // the subscription's current price, that becomes the new price going
+  // forward too — see billSubscription's priceOverride.
+  amount: z.number().positive().optional(),
+});
+
+// The one-button "Продлить" (renew / duplicate to next period) action.
 subscriptionsRouter.post("/:id/bill", async (c) => {
   const auth = c.get("auth");
+  const body = billSchema.parse(await c.req.json().catch(() => ({})));
   const subscription = await prisma.subscription.findFirst({
     where: { id: c.req.param("id"), organizationId: auth.organizationId },
     include: { client: true, licenseProduct: true },
@@ -116,7 +124,7 @@ subscriptionsRouter.post("/:id/bill", async (c) => {
     throw new AppError(400, "Нельзя выставить платёж по приостановленной или отменённой подписке");
   }
 
-  const result = await billSubscription(subscription, subscription.nextBillingDate, auth.userId);
+  const result = await billSubscription(subscription, subscription.nextBillingDate, auth.userId, body.amount);
   return c.json(result, 201);
 });
 

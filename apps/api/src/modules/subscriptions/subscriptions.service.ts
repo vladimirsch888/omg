@@ -31,16 +31,22 @@ interface SubscriptionForBilling {
  * Creates the income operation for one billing period of a subscription
  * (plus the linked vendor-cost expense operation, if a vendor share
  * applies), then advances the subscription's nextBillingDate. Used both
- * when a subscription is first created and by the "bill next period"
- * (duplicate) action — the one thing the client asked to be a single
- * button.
+ * when a subscription is first created and by the "Продлить" (renew)
+ * action — the one thing the client asked to be a single button.
+ *
+ * `priceOverride`, when given, bills this period at that amount instead of
+ * the subscription's stored price, and persists it as the subscription's
+ * new price — so a price change made while renewing (e.g. the client's
+ * plan just got more expensive) sticks for the next renewal too, not just
+ * this one.
  */
 export async function billSubscription(
   subscription: SubscriptionForBilling,
   billingDate: Date,
-  userId: string
+  userId: string,
+  priceOverride?: number
 ) {
-  const price = Number(subscription.price);
+  const price = priceOverride ?? Number(subscription.price);
   const vendorSharePercent = Number(subscription.vendorSharePercent);
 
   const incomeOperation = await prisma.operation.create({
@@ -88,7 +94,10 @@ export async function billSubscription(
 
   const updatedSubscription = await prisma.subscription.update({
     where: { id: subscription.id },
-    data: { nextBillingDate: addMonths(billingDate, subscription.durationMonths) },
+    data: {
+      nextBillingDate: addMonths(billingDate, subscription.durationMonths),
+      ...(priceOverride !== undefined ? { price: priceOverride } : {}),
+    },
   });
 
   return { incomeOperation, expenseOperation, subscription: updatedSubscription };
