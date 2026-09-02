@@ -9,6 +9,7 @@ import {
   Receipt,
   RefreshCw,
   Settings,
+  Target,
   TrendingUp,
   UserCog,
   Users,
@@ -42,6 +43,7 @@ export const navGroups: NavGroup[] = [
     title: "Продажи и деньги",
     items: [
       { to: "/sales", label: "Продажи", icon: Receipt },
+      { to: "/sales-plan", label: "План продаж", icon: Target },
       { to: "/subscriptions", label: "Подписки", icon: RefreshCw },
       { to: "/products", label: "Продукты", icon: Package },
       { to: "/operations", label: "Операции", icon: ArrowLeftRight },
@@ -90,6 +92,7 @@ const titles: Record<string, string> = {
   "/operations": "Операции",
   "/products": "Продукты",
   "/sales": "Продажи",
+  "/sales-plan": "План продаж",
   "/subscriptions": "Подписки",
   "/requests": "Заявки",
   "/time-tracking": "Учёт часов",

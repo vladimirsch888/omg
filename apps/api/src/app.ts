@@ -16,6 +16,7 @@ import { demoRouter } from "./modules/demo/demo.routes";
 import { licenseProductsRouter } from "./modules/licenseProducts/licenseProducts.routes";
 import { subscriptionsRouter } from "./modules/subscriptions/subscriptions.routes";
 import { salesRouter } from "./modules/sales/sales.routes";
+import { salesPlansRouter } from "./modules/salesPlans/salesPlans.routes";
 import type { AppEnv } from "./types/hono";
 
 export const app = new Hono<AppEnv>();
@@ -37,6 +38,7 @@ app.route("/api/demo", demoRouter);
 app.route("/api/license-products", licenseProductsRouter);
 app.route("/api/subscriptions", subscriptionsRouter);
 app.route("/api/sales", salesRouter);
+app.route("/api/sales-plans", salesPlansRouter);
 
 app.onError((err, c) => {
   if (err instanceof AppError) {

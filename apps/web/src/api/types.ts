@@ -140,6 +140,7 @@ export interface DemoStatus {
   subscriptions: number;
   licenseProducts: number;
   sales: number;
+  salesPlans: number;
 }
 
 export interface LicenseProduct {
@@ -195,6 +196,22 @@ export interface CashPosition {
   taxReserveAccrued: number;
   spendable: number;
   taxReservePercent: number;
+}
+
+export interface SalesPlans {
+  year: number;
+  /** null when no annual target is set for the year. */
+  annual: number | null;
+  months: { month: number; amount: number }[];
+}
+
+export interface SalesPlanReport {
+  year: number;
+  annualPlan: number | null;
+  monthlyPlanTotal: number;
+  months: { month: number; plan: number | null; fact: number; netProfit: number }[];
+  totals: { fact: number; netProfit: number; completionPercent: number | null };
+  profitMix: { license: number; work: number; other: number; total: number };
 }
 
 export interface SubscriptionMonthSummary {
