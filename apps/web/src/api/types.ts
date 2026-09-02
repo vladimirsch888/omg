@@ -201,7 +201,7 @@ export interface SubscriptionMonthSummary {
   totalExpected: number;
   renewedAmount: number;
   renewedNetProfit: number;
-  projectedNetProfit: number;
+  pendingNetProfit: number;
 }
 
 export interface User {

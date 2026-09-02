@@ -188,8 +188,8 @@ export function SubscriptionsPage() {
           />
           <StatCard
             label="Ожидаемая прибыль до конца месяца"
-            value={formatMoney(monthSummary.projectedNetProfit)}
-            hint="факт + прогноз по неоплаченным подпискам, за вычетом вендора и налога"
+            value={formatMoney(monthSummary.pendingNetProfit)}
+            hint="только по подпискам, которые ещё нужно продлить в этом месяце, за вычетом вендора и налога"
           />
         </div>
       )}

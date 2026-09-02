@@ -122,6 +122,13 @@ export async function billSubscription(
  * end of this month — including anything overdue from a missed renewal —
  * counts as still expected).
  *
+ * `pendingNetProfit` is deliberately forecast-only: it covers just the
+ * subscriptions that still have to be renewed this month, and does NOT add
+ * in what has already been billed (that's `renewedNetProfit`). A 13-month
+ * license renewed on the 4th, whose next due date is now next year, must not
+ * keep showing up under "expected until the end of the month" — it's done
+ * for this month.
+ *
  * A subscription usually drops out of "pending" the moment it's billed this
  * month, since renewing pushes its nextBillingDate at least one duration
  * forward from where it was scheduled (see billSubscription — the schedule
@@ -183,6 +190,6 @@ export async function getMonthSummary(organizationId: string) {
     totalExpected: renewedAmount + pendingAmount,
     renewedAmount,
     renewedNetProfit,
-    projectedNetProfit: renewedNetProfit + pendingNetProfit,
+    pendingNetProfit,
   };
 }
