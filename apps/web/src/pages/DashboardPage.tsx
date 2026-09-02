@@ -75,7 +75,7 @@ export function DashboardPage() {
 
       {/* The one number the business actually runs on. */}
       {cash && (
-        <section className="relative overflow-hidden rounded-xl border border-accent/20 bg-surface p-5 shadow-[0_1px_2px_rgba(0,0,0,0.4)] sm:p-6">
+        <section className="relative overflow-hidden rounded-xl border border-accent/20 bg-surface p-5 card-shadow sm:p-6">
           <div
             className="pointer-events-none absolute inset-0 opacity-70"
             style={{

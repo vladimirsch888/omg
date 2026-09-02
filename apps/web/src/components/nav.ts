@@ -68,7 +68,9 @@ export const navGroups: NavGroup[] = [
     items: [
       { to: "/admin/dictionaries", label: "Справочники", icon: BookOpen, admin: true },
       { to: "/admin/users", label: "Пользователи", icon: UserCog, admin: true },
-      { to: "/admin/settings", label: "Настройки", icon: Settings, admin: true },
+      // Not admin-gated: the page carries the personal theme setting, and the
+      // demo-data controls inside it are hidden from non-admins instead.
+      { to: "/admin/settings", label: "Настройки", icon: Settings },
     ],
   },
 ];

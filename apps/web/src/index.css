@@ -2,12 +2,15 @@
 @import "@fontsource-variable/inter";
 
 /*
-  Palette: warm graphite, not black. The whole app runs on one softly dark
-  theme — surfaces step up in lightness (canvas < surface < raised), borders
-  stay low-contrast, and the only saturated colours are the accent and the
-  three financial semantics (income / expense / tax reserve). Everything is
-  desaturated on purpose: bright red/green is what makes a finance UI look
-  cheap and alarming.
+  Two palettes, one set of names. The dark one is the default and lives in
+  @theme; the light one below only redefines the same custom properties, so
+  every `bg-surface` / `text-ink` in the app switches theme without a single
+  conditional class. Both are deliberately desaturated: bright red/green is
+  what makes a finance UI look cheap and alarming.
+
+  Which palette is active is decided by `data-theme` on <html> — set before
+  first paint by the inline script in index.html, then kept in sync by
+  ThemeContext.
 */
 @theme {
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -45,9 +48,49 @@
   --radius-xl: 1.125rem;
 }
 
+:root {
+  color-scheme: dark;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --scrim: rgba(0, 0, 0, 0.6);
+}
+
+/*
+  Light theme: warm off-white rather than pure white, with the accent and the
+  financial colours darkened so they still pass as text on a light ground.
+*/
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --color-canvas: #faf9f7;
+  --color-surface: #ffffff;
+  --color-raised: #f3f1ec;
+  --color-overlay: #ffffff;
+
+  --color-line: #e7e3db;
+  --color-line-strong: #d3ccc0;
+
+  --color-ink: #1f1d1a;
+  --color-ink-muted: #6b655c;
+  --color-ink-subtle: #948d83;
+
+  --color-accent: #0f6e63;
+  --color-accent-hover: #0c5d54;
+  --color-accent-ink: #ffffff;
+  --color-accent-soft: #e2efec;
+
+  --color-income: #0e7c66;
+  --color-income-soft: #e3f1eb;
+  --color-expense: #b4553f;
+  --color-expense-soft: #f8e9e4;
+  --color-reserve: #a3762b;
+  --color-reserve-soft: #f7eedb;
+
+  --shadow-card: 0 1px 2px rgba(31, 29, 26, 0.06), 0 1px 3px rgba(31, 29, 26, 0.04);
+  --scrim: rgba(31, 29, 26, 0.35);
+}
+
 @layer base {
   html {
-    color-scheme: dark;
     -webkit-text-size-adjust: 100%;
   }
 
@@ -75,12 +118,6 @@
     font-size: 16px;
   }
 
-  /* Native pickers render black-on-black without this. */
-  input[type="date"],
-  input[type="month"] {
-    color-scheme: dark;
-  }
-
   ::selection {
     background: var(--color-accent-soft);
     color: var(--color-ink);
@@ -98,6 +135,19 @@
   }
   ::-webkit-scrollbar-track {
     background: transparent;
+  }
+}
+
+@layer utilities {
+  /* Panel elevation — a shadow tuned per theme, since the dark one's depth
+     would read as dirt on a light ground. */
+  .card-shadow {
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Backdrop behind modals and the mobile nav sheet. */
+  .scrim {
+    background: var(--scrim);
   }
 }
 

@@ -110,7 +110,7 @@ export function Layout() {
       {/* Phone: full navigation sheet */}
       {moreOpen && (
         <div className="fixed inset-0 z-40 flex flex-col justify-end lg:hidden">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={() => setMoreOpen(false)} />
+          <div className="absolute inset-0 scrim backdrop-blur-[2px]" onClick={() => setMoreOpen(false)} />
           <div className="relative max-h-[85dvh] overflow-y-auto rounded-t-2xl border-t border-line bg-surface px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
             <div className="mb-3 flex items-center justify-between">
               <span className="flex justify-center">

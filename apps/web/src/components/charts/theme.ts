@@ -1,10 +1,25 @@
-/**
- * Shared look for every recharts chart: thin strokes, horizontal-only grid at
- * low opacity, no axis lines, and abbreviated money on the value axis. Lives in
- * the charts folder so it only ever loads inside a lazily-imported chunk.
- */
+import { useTheme } from "../../context/ThemeContext";
 
-export const chartColors = {
+/**
+ * Recharts takes colours as plain strings, so unlike the rest of the app it
+ * can't just reference `--color-accent`. Both palettes live here and the hook
+ * below picks one — which also re-renders every chart when the theme changes.
+ */
+export interface ChartColors {
+  accent: string;
+  income: string;
+  expense: string;
+  reserve: string;
+  ink: string;
+  muted: string;
+  grid: string;
+  /** Fill of the hover band behind the tooltip. */
+  cursor: string;
+  /** Donut slices — muted, no two adjacent hues clashing. */
+  palette: string[];
+}
+
+const dark: ChartColors = {
   accent: "#3fa697",
   income: "#56b894",
   expense: "#d08268",
@@ -12,31 +27,51 @@ export const chartColors = {
   ink: "#f2efe9",
   muted: "#a8a29a",
   grid: "#34312d",
+  cursor: "rgba(255,255,255,0.03)",
+  palette: ["#3fa697", "#d6a85f", "#8f9ecb", "#d08268", "#7fae86", "#c08bab", "#9d8f7a", "#6fa2b8"],
 };
 
-/** Category palette for donuts — muted, no two adjacent hues clashing. */
-export const categoryPalette = [
-  "#3fa697",
-  "#d6a85f",
-  "#8f9ecb",
-  "#d08268",
-  "#7fae86",
-  "#c08bab",
-  "#9d8f7a",
-  "#6fa2b8",
-];
+const light: ChartColors = {
+  accent: "#0f6e63",
+  income: "#0e7c66",
+  expense: "#b4553f",
+  reserve: "#a3762b",
+  ink: "#1f1d1a",
+  muted: "#6b655c",
+  grid: "#e0dbd2",
+  cursor: "rgba(31,29,26,0.04)",
+  palette: ["#0f6e63", "#b98a2e", "#5d6b9c", "#b4553f", "#4f8560", "#96617e", "#7d7264", "#3f7d97"],
+};
 
-export const axisProps = {
-  tickLine: false,
-  axisLine: false,
-  tick: { fill: chartColors.muted, fontSize: 11 },
-} as const;
+export function useChartColors(): ChartColors {
+  const { resolved } = useTheme();
+  return resolved === "light" ? light : dark;
+}
 
-export const gridProps = {
-  strokeDasharray: "2 6",
-  stroke: chartColors.grid,
-  vertical: false,
-} as const;
+/** Axis/grid props derived from the active palette. */
+export function axisProps(colors: ChartColors) {
+  return {
+    tickLine: false,
+    axisLine: false,
+    tick: { fill: colors.muted, fontSize: 11 },
+  } as const;
+}
+
+export function gridProps(colors: ChartColors) {
+  return {
+    strokeDasharray: "2 6",
+    stroke: colors.grid,
+    vertical: false,
+  } as const;
+}
+
+export function legendProps(colors: ChartColors) {
+  return {
+    iconType: "circle" as const,
+    iconSize: 7,
+    wrapperStyle: { fontSize: 11, color: colors.muted, paddingTop: 8 },
+  };
+}
 
 /**
  * 1 234 567 → «1,2 млн»; keeps value axes narrow enough for a phone. The

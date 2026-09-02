@@ -16,7 +16,7 @@ export function Card({
 }) {
   return (
     <section
-      className={`rounded-xl border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.4)] ${className}`}
+      className={`rounded-xl border border-line bg-surface card-shadow ${className}`}
     >
       {(title || action) && (
         <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
@@ -40,7 +40,7 @@ export function Card({
  */
 export function ListCard({ children, title }: { children: ReactNode; title?: ReactNode }) {
   return (
-    <section className="rounded-none border-0 bg-transparent sm:rounded-xl sm:border sm:border-line sm:bg-surface sm:shadow-[0_1px_2px_rgba(0,0,0,0.4)]">
+    <section className="rounded-none border-0 bg-transparent sm:rounded-xl sm:border sm:border-line sm:bg-surface sm:card-shadow">
       {title && (
         <header className="mb-2 px-0 sm:mb-0 sm:border-b sm:border-line sm:px-5 sm:py-3">
           <h2 className="text-sm font-semibold tracking-tight text-ink">{title}</h2>
@@ -95,7 +95,7 @@ export function StatCard({
 }) {
   return (
     <div
-      className={`flex flex-col rounded-xl border border-line bg-surface p-3.5 shadow-[0_1px_2px_rgba(0,0,0,0.4)] sm:p-5 ${
+      className={`flex flex-col rounded-xl border border-line bg-surface p-3.5 card-shadow sm:p-5 ${
         wide ? "col-span-2 sm:col-span-1" : ""
       }`}
     >

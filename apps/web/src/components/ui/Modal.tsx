@@ -45,7 +45,7 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-[2px] motion-safe:animate-[fade_140ms_ease-out]"
+        className="absolute inset-0 scrim backdrop-blur-[2px] motion-safe:animate-[fade_140ms_ease-out]"
         onClick={onClose}
       />
       <div

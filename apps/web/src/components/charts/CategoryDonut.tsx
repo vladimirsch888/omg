@@ -1,6 +1,6 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { formatMoney } from "../../utils/format";
-import { categoryPalette } from "./theme";
+import { useChartColors } from "./theme";
 import { ChartTooltip } from "./ChartTooltip";
 
 export interface CategorySlice {
@@ -13,6 +13,8 @@ export interface CategorySlice {
  * both "сколько всего" and "на что" without a separate stat card.
  */
 export default function CategoryDonut({ data, total }: { data: CategorySlice[]; total: number }) {
+  const { palette } = useChartColors();
+
   if (data.length === 0) return null;
 
   return (
@@ -30,7 +32,7 @@ export default function CategoryDonut({ data, total }: { data: CategorySlice[]; 
               stroke="none"
             >
               {data.map((_, i) => (
-                <Cell key={i} fill={categoryPalette[i % categoryPalette.length]} />
+                <Cell key={i} fill={palette[i % palette.length]} />
               ))}
             </Pie>
             <Tooltip content={<ChartTooltip />} />
@@ -48,7 +50,7 @@ export default function CategoryDonut({ data, total }: { data: CategorySlice[]; 
             <span className="flex min-w-0 items-center gap-2">
               <span
                 className="size-2.5 shrink-0 rounded-sm"
-                style={{ background: categoryPalette[i % categoryPalette.length] }}
+                style={{ background: palette[i % palette.length] }}
               />
               <span className="truncate text-ink-muted">{slice.name}</span>
             </span>
