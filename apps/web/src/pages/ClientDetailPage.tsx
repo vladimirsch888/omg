@@ -1,19 +1,21 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
-import { Client, ClientLTV, Project } from "../api/types";
+import { Client, ClientLTV, Project, Sale } from "../api/types";
 import { Card, StatCard } from "../components/Card";
-import { formatMoney } from "../utils/format";
+import { formatMoney, formatDate } from "../utils/format";
 
 export function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [client, setClient] = useState<(Client & { projects: Project[] }) | null>(null);
   const [ltv, setLtv] = useState<ClientLTV | null>(null);
+  const [sales, setSales] = useState<Sale[]>([]);
 
   useEffect(() => {
     if (!id) return;
     api.get(`/clients/${id}`).then((res) => setClient(res.data));
     api.get<ClientLTV[]>("/reports/ltv", { params: { clientId: id } }).then((res) => setLtv(res.data[0] ?? null));
+    api.get<Sale[]>("/sales", { params: { clientId: id } }).then((res) => setSales(res.data));
   }, [id]);
 
   if (!client) return <div className="text-slate-500">Загрузка…</div>;
@@ -59,6 +61,23 @@ export function ClientDetailPage() {
             </div>
           ))}
           {client.projects.length === 0 && <div className="text-sm text-slate-400">Нет проектов</div>}
+        </div>
+      </Card>
+
+      <Card title="Продажи">
+        <div className="flex flex-col gap-2">
+          {sales.map((s) => (
+            <div key={s.id} className="flex items-center justify-between rounded-md border border-slate-200 p-3 text-sm">
+              <div>
+                <span className="font-medium">{s.licenseProduct?.name}</span>
+                <span className="ml-2 text-xs text-slate-400">
+                  {formatDate(s.saleDate)}{s.project?.name ? ` · ${s.project.name}` : ""}
+                </span>
+              </div>
+              <span className="font-medium text-green-600">{formatMoney(s.amount)}</span>
+            </div>
+          ))}
+          {sales.length === 0 && <div className="text-sm text-slate-400">Продаж пока нет</div>}
         </div>
       </Card>
     </div>

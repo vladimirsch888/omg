@@ -67,6 +67,7 @@ export interface Operation {
   vendorSharePercent?: string | number;
   taxable?: boolean;
   subscriptionId?: string | null;
+  saleId?: string | null;
 }
 
 export interface RequestTicket {
@@ -138,6 +139,7 @@ export interface DemoStatus {
   timeEntries: number;
   subscriptions: number;
   licenseProducts: number;
+  sales: number;
 }
 
 export interface LicenseProduct {
@@ -168,6 +170,21 @@ export interface Subscription {
   startDate: string;
   nextBillingDate: string;
   operations?: Operation[];
+}
+
+export interface Sale {
+  id: string;
+  clientId: string;
+  client?: { id: string; name: string };
+  projectId?: string | null;
+  project?: { id: string; name: string } | null;
+  licenseProductId: string;
+  licenseProduct?: { id: string; name: string };
+  amount: string | number;
+  saleDate: string;
+  vendorSharePercent: string | number;
+  taxable: boolean;
+  createdAt: string;
 }
 
 export interface CashPosition {

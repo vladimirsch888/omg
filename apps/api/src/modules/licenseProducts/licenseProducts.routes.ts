@@ -57,9 +57,12 @@ licenseProductsRouter.delete("/:id", requireRole("OWNER", "ADMIN"), async (c) =>
     where: { id: c.req.param("id"), organizationId: auth.organizationId },
   });
   if (!product) throw new AppError(404, "Продукт не найден");
-  const subscriptionCount = await prisma.subscription.count({ where: { licenseProductId: product.id } });
-  if (subscriptionCount > 0) {
-    throw new AppError(409, "Нельзя удалить продукт: на него есть подписки клиентов. Деактивируйте его вместо удаления.");
+  const [subscriptionCount, saleCount] = await Promise.all([
+    prisma.subscription.count({ where: { licenseProductId: product.id } }),
+    prisma.sale.count({ where: { licenseProductId: product.id } }),
+  ]);
+  if (subscriptionCount > 0 || saleCount > 0) {
+    throw new AppError(409, "Нельзя удалить продукт: на него есть подписки или продажи. Деактивируйте его вместо удаления.");
   }
   await prisma.licenseProduct.delete({ where: { id: product.id } });
   return c.body(null, 204);

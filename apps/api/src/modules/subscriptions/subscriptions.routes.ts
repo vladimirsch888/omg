@@ -70,6 +70,9 @@ subscriptionsRouter.post("/", async (c) => {
   if (body.projectId) {
     const project = await prisma.project.findFirst({ where: { id: body.projectId, organizationId } });
     if (!project) throw new AppError(404, "Проект не найден");
+    if (project.clientId !== body.clientId) {
+      throw new AppError(400, "Проект принадлежит другому клиенту");
+    }
   }
 
   const startDate = new Date(body.startDate);

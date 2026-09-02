@@ -1,5 +1,6 @@
 import { prisma } from "../../prisma";
 import { billSubscription } from "../subscriptions/subscriptions.service";
+import { recordSale } from "../sales/sales.service";
 
 /**
  * Demo data lives entirely behind the `isDemo` flag on Client, Project,
@@ -274,6 +275,47 @@ export async function seedDemoData(organizationId: string, userId: string) {
   // Paid straight to a personal card: vendor still takes its 50%, but no tax reserve is set aside.
   subscriptionOperationsCount += await seedSubscription(clientTechnopark.id, projectByKey.technopark, productWazzupCard, 3);
 
+  // One-off sales ("Продажи") — unlike a subscription, these book their
+  // operations once, right away, with no billing cycle. `projectId: null`
+  // is used deliberately below: a sale (like a subscription) always has a
+  // clientId even without a project, and reporting must attribute it to
+  // that client anyway (see getClientLTV's project/subscription/sale OR).
+  async function seedSale(
+    clientId: string,
+    clientName: string,
+    projectId: string | null,
+    product: { id: string; defaultVendorSharePercent: unknown; defaultTaxable: boolean; categoryValueId: string | null; name: string },
+    amount: number,
+    monthsAgo: number,
+    day: number
+  ) {
+    const result = await recordSale({
+      organizationId,
+      clientId,
+      projectId,
+      licenseProductId: product.id,
+      amount,
+      saleDate: dateInPast(monthsAgo, day),
+      vendorSharePercent: Number(product.defaultVendorSharePercent),
+      taxable: product.defaultTaxable,
+      categoryValueId: product.categoryValueId,
+      clientName,
+      productName: product.name,
+      userId,
+      isDemo: true,
+    });
+    return result.expenseOperation ? 2 : 1;
+  }
+
+  let saleOperationsCount = 0;
+  // No project at all: an extra license sold directly, outside any tracked project.
+  saleOperationsCount += await seedSale(clientRomashka.id, clientRomashka.name, null, productAmoCRM, 45000, 2, 12);
+  // Tied to a project: an upsell during the implementation itself.
+  saleOperationsCount += await seedSale(clientTechnopark.id, clientTechnopark.name, projectByKey.technopark, productNova, 250000, 1, 18);
+  // Untaxed "card" product, also project-less.
+  saleOperationsCount += await seedSale(clientSfera.id, clientSfera.name, null, productWazzupCard, 6000, 0, 22);
+  const salesCount = 3;
+
   // Monthly recurring income/expense streams. `monthsBack` = how many months
   // of history to generate, counting back from the current month.
   const streams: RevenueStream[] = [
@@ -411,7 +453,8 @@ export async function seedDemoData(organizationId: string, userId: string) {
     projects: 6,
     licenseProducts: 4,
     subscriptions: 4,
-    operations: operationsToCreate.length + subscriptionOperationsCount,
+    sales: salesCount,
+    operations: operationsToCreate.length + subscriptionOperationsCount + saleOperationsCount,
     requests: requests.length,
     timeEntries: timeEntries.length,
   };
@@ -419,11 +462,13 @@ export async function seedDemoData(organizationId: string, userId: string) {
 
 export async function clearDemoData(organizationId: string) {
   // Sequential and in this order on purpose: children before parents, since
-  // not every relation cascades on delete (Operation->Project/Subscription
-  // are SetNull, not Cascade) and running these concurrently could race.
+  // not every relation cascades on delete (Operation->Project/Subscription/
+  // Sale are SetNull, not Cascade, and Sale/Subscription->LicenseProduct is
+  // Restrict) and running these concurrently could race.
   const operations = await prisma.operation.deleteMany({ where: { organizationId, isDemo: true } });
   const timeEntries = await prisma.timeEntry.deleteMany({ where: { organizationId, isDemo: true } });
   const requests = await prisma.request.deleteMany({ where: { organizationId, isDemo: true } });
+  const sales = await prisma.sale.deleteMany({ where: { organizationId, isDemo: true } });
   const subscriptions = await prisma.subscription.deleteMany({ where: { organizationId, isDemo: true } });
   const licenseProducts = await prisma.licenseProduct.deleteMany({ where: { organizationId, isDemo: true } });
   const projects = await prisma.project.deleteMany({ where: { organizationId, isDemo: true } });
@@ -431,6 +476,7 @@ export async function clearDemoData(organizationId: string) {
   return {
     operations: operations.count,
     timeEntries: timeEntries.count,
+    sales: sales.count,
     subscriptions: subscriptions.count,
     licenseProducts: licenseProducts.count,
     requests: requests.count,
@@ -440,7 +486,7 @@ export async function clearDemoData(organizationId: string) {
 }
 
 export async function getDemoStatus(organizationId: string) {
-  const [clients, projects, operations, requests, timeEntries, subscriptions, licenseProducts] = await Promise.all([
+  const [clients, projects, operations, requests, timeEntries, subscriptions, licenseProducts, sales] = await Promise.all([
     prisma.client.count({ where: { organizationId, isDemo: true } }),
     prisma.project.count({ where: { organizationId, isDemo: true } }),
     prisma.operation.count({ where: { organizationId, isDemo: true } }),
@@ -448,8 +494,9 @@ export async function getDemoStatus(organizationId: string) {
     prisma.timeEntry.count({ where: { organizationId, isDemo: true } }),
     prisma.subscription.count({ where: { organizationId, isDemo: true } }),
     prisma.licenseProduct.count({ where: { organizationId, isDemo: true } }),
+    prisma.sale.count({ where: { organizationId, isDemo: true } }),
   ]);
-  const total = clients + projects + operations + requests + timeEntries + subscriptions + licenseProducts;
+  const total = clients + projects + operations + requests + timeEntries + subscriptions + licenseProducts + sales;
   return {
     hasDemoData: total > 0,
     clients,
@@ -459,5 +506,6 @@ export async function getDemoStatus(organizationId: string) {
     timeEntries,
     subscriptions,
     licenseProducts,
+    sales,
   };
 }

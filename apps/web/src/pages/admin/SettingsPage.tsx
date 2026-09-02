@@ -54,7 +54,7 @@ export function SettingsPage() {
         </p>
 
         {status && (
-          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <div className="rounded-md bg-slate-50 p-2 text-center">
               <div className="text-lg font-semibold">{status.clients}</div>
               <div className="text-xs text-slate-500">клиентов</div>
@@ -62,6 +62,10 @@ export function SettingsPage() {
             <div className="rounded-md bg-slate-50 p-2 text-center">
               <div className="text-lg font-semibold">{status.projects}</div>
               <div className="text-xs text-slate-500">проектов</div>
+            </div>
+            <div className="rounded-md bg-slate-50 p-2 text-center">
+              <div className="text-lg font-semibold">{status.sales}</div>
+              <div className="text-xs text-slate-500">продаж</div>
             </div>
             <div className="rounded-md bg-slate-50 p-2 text-center">
               <div className="text-lg font-semibold">{status.operations}</div>

@@ -26,6 +26,7 @@ model Organization {
   timeEntries     TimeEntry[]
   licenseProducts LicenseProduct[]
   subscriptions   Subscription[]
+  sales           Sale[]
 }
 
 enum Role {
@@ -77,6 +78,7 @@ model Client {
 
   projects      Project[]
   subscriptions Subscription[]
+  sales         Sale[]
 
   @@index([organizationId])
 }
@@ -118,6 +120,7 @@ model Project {
   timeEntries   TimeEntry[]
   requests      Request[]
   subscriptions Subscription[]
+  sales         Sale[]
 
   @@index([organizationId])
   @@index([clientId])
@@ -189,6 +192,7 @@ model LicenseProduct {
   createdAt DateTime @default(now())
 
   subscriptions Subscription[]
+  sales         Sale[]
 
   @@index([organizationId])
 }
@@ -232,6 +236,40 @@ model Subscription {
   @@index([organizationId])
   @@index([clientId])
   @@index([nextBillingDate])
+}
+
+// A one-off sale of a product to a client — unlike Subscription, this has no
+// billing cycle: it books its operations once, on saleDate, and that's it.
+// Always carries clientId directly (even though projectId is optional) so
+// revenue is never invisible to per-client reporting.
+model Sale {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  licenseProductId String
+  licenseProduct   LicenseProduct @relation(fields: [licenseProductId], references: [id])
+
+  amount   Decimal  @db.Decimal(14, 2)
+  saleDate DateTime
+
+  // Snapshot from the product at the time of sale, for the financial waterfall.
+  vendorSharePercent Decimal @db.Decimal(5, 2)
+  taxable            Boolean @default(true)
+
+  isDemo    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  operations Operation[]
+
+  @@index([organizationId])
+  @@index([clientId])
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +325,9 @@ model Operation {
   subscriptionId String?
   subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
 
+  saleId String?
+  sale   Sale?   @relation(fields: [saleId], references: [id], onDelete: SetNull)
+
   createdById String?
   createdBy   User?   @relation("OperationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
@@ -295,6 +336,7 @@ model Operation {
   @@index([organizationId, paymentDate])
   @@index([projectId])
   @@index([subscriptionId])
+  @@index([saleId])
 }
 
 // ---------------------------------------------------------------------------

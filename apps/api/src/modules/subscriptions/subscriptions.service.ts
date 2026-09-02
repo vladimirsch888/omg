@@ -23,7 +23,7 @@ interface SubscriptionForBilling {
   vendorSharePercent: unknown; // Prisma.Decimal
   taxable: boolean;
   isDemo: boolean;
-  licenseProduct: { name: string };
+  licenseProduct: { name: string; categoryValueId: string | null };
   client: { name: string };
 }
 
@@ -54,6 +54,7 @@ export async function billSubscription(
       amount: price,
       accrualDate: billingDate,
       paymentDate: billingDate,
+      categoryValueId: subscription.licenseProduct.categoryValueId,
       vendorSharePercent,
       taxable: subscription.taxable,
       counterparty: subscription.client.name,

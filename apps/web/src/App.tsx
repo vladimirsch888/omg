@@ -9,6 +9,7 @@ import { ProjectsPage } from "./pages/ProjectsPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { OperationsPage } from "./pages/OperationsPage";
 import { ProductsPage } from "./pages/ProductsPage";
+import { SalesPage } from "./pages/SalesPage";
 import { SubscriptionsPage } from "./pages/SubscriptionsPage";
 import { RequestsPage } from "./pages/RequestsPage";
 import { TimeTrackingPage } from "./pages/TimeTrackingPage";
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
         <Route path="/operations" element={<OperationsPage />} />
         <Route path="/products" element={<ProductsPage />} />
+        <Route path="/sales" element={<SalesPage />} />
         <Route path="/subscriptions" element={<SubscriptionsPage />} />
         <Route path="/requests" element={<RequestsPage />} />
         <Route path="/time-tracking" element={<TimeTrackingPage />} />
