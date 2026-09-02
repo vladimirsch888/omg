@@ -243,6 +243,24 @@ export async function seedDemoData(organizationId: string, userId: string) {
       defaultTaxable: true,
     },
   });
+  // A second WORK product covering the "сопровождение" category. Beyond being
+  // a realistic service line, it teaches the sales-plan report that support
+  // income is work rather than "прочее" — that report reads the catalog to
+  // decide which categories mean licences and which mean works.
+  const productSupportWork = await prisma.licenseProduct.create({
+    data: {
+      organizationId,
+      isDemo: true,
+      type: "WORK",
+      name: "Сопровождение CRM (пакет часов)",
+      categoryValueId: dict.category.client_support ?? null,
+      defaultPrice: 30000,
+      defaultDurationMonths: null,
+      defaultWorkDays: 5,
+      defaultVendorSharePercent: 0,
+      defaultTaxable: true,
+    },
+  });
 
   // Bills `monthsOfHistory` worth of periods for a new subscription, reusing
   // the exact same billSubscription() the "Выставить следующий платёж"
@@ -335,7 +353,8 @@ export async function seedDemoData(organizationId: string, userId: string) {
   saleOperationsCount += await seedSale(clientSfera.id, clientSfera.name, null, productWazzupCard, 6000, 0, 22);
   // WORK-type product: no subscription term, but a "Дата окончания работ" 30 days out.
   saleOperationsCount += await seedSale(clientKuznetsov.id, clientKuznetsov.name, projectByKey.kuznetsovMain, productImplementationWork, 180000, 0, 1, 30);
-  const salesCount = 4;
+  saleOperationsCount += await seedSale(clientSfera.id, clientSfera.name, projectByKey.sfera, productSupportWork, 30000, 0, 0, 12);
+  const salesCount = 5;
 
   // Monthly recurring income/expense streams. `monthsBack` = how many months
   // of history to generate, counting back from the current month.
@@ -469,15 +488,36 @@ export async function seedDemoData(organizationId: string, userId: string) {
   }
   await prisma.timeEntry.createMany({ data: timeEntries });
 
+  // Sales plans for the current year: an annual target plus twelve monthly
+  // ones, deliberately not a flat twelfth each — the plan chart is only
+  // interesting when some months beat their target and others miss it.
+  const planYear = new Date().getFullYear();
+  const monthlyPlan = [
+    280_000, 300_000, 320_000, 300_000, 340_000, 360_000,
+    340_000, 380_000, 400_000, 420_000, 440_000, 460_000,
+  ];
+  const salesPlans = [
+    { organizationId, isDemo: true, year: planYear, month: null, amount: 4_200_000 },
+    ...monthlyPlan.map((amount, i) => ({
+      organizationId,
+      isDemo: true,
+      year: planYear,
+      month: i + 1,
+      amount,
+    })),
+  ];
+  await prisma.salesPlan.createMany({ data: salesPlans });
+
   return {
     clients: 4,
     projects: 6,
-    licenseProducts: 5,
+    licenseProducts: 6,
     subscriptions: 4,
     sales: salesCount,
     operations: operationsToCreate.length + subscriptionOperationsCount + saleOperationsCount,
     requests: requests.length,
     timeEntries: timeEntries.length,
+    salesPlans: salesPlans.length,
   };
 }
 
@@ -494,6 +534,7 @@ export async function clearDemoData(organizationId: string) {
   const licenseProducts = await prisma.licenseProduct.deleteMany({ where: { organizationId, isDemo: true } });
   const projects = await prisma.project.deleteMany({ where: { organizationId, isDemo: true } });
   const clients = await prisma.client.deleteMany({ where: { organizationId, isDemo: true } });
+  const salesPlans = await prisma.salesPlan.deleteMany({ where: { organizationId, isDemo: true } });
   return {
     operations: operations.count,
     timeEntries: timeEntries.count,
@@ -503,11 +544,12 @@ export async function clearDemoData(organizationId: string) {
     requests: requests.count,
     projects: projects.count,
     clients: clients.count,
+    salesPlans: salesPlans.count,
   };
 }
 
 export async function getDemoStatus(organizationId: string) {
-  const [clients, projects, operations, requests, timeEntries, subscriptions, licenseProducts, sales] = await Promise.all([
+  const [clients, projects, operations, requests, timeEntries, subscriptions, licenseProducts, sales, salesPlans] = await Promise.all([
     prisma.client.count({ where: { organizationId, isDemo: true } }),
     prisma.project.count({ where: { organizationId, isDemo: true } }),
     prisma.operation.count({ where: { organizationId, isDemo: true } }),
@@ -516,8 +558,10 @@ export async function getDemoStatus(organizationId: string) {
     prisma.subscription.count({ where: { organizationId, isDemo: true } }),
     prisma.licenseProduct.count({ where: { organizationId, isDemo: true } }),
     prisma.sale.count({ where: { organizationId, isDemo: true } }),
+    prisma.salesPlan.count({ where: { organizationId, isDemo: true } }),
   ]);
-  const total = clients + projects + operations + requests + timeEntries + subscriptions + licenseProducts + sales;
+  const total =
+    clients + projects + operations + requests + timeEntries + subscriptions + licenseProducts + sales + salesPlans;
   return {
     hasDemoData: total > 0,
     clients,
@@ -528,5 +572,6 @@ export async function getDemoStatus(organizationId: string) {
     subscriptions,
     licenseProducts,
     sales,
+    salesPlans,
   };
 }

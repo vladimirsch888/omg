@@ -15,6 +15,7 @@ const counters: { key: keyof DemoStatus; label: string }[] = [
   { key: "requests", label: "заявок" },
   { key: "timeEntries", label: "записей часов" },
   { key: "licenseProducts", label: "продуктов" },
+  { key: "salesPlans", label: "планов продаж" },
 ];
 
 const themeOptions: { mode: ThemeMode; label: string; icon: LucideIcon; hint: string }[] = [

@@ -27,6 +27,7 @@ model Organization {
   licenseProducts LicenseProduct[]
   subscriptions   Subscription[]
   sales           Sale[]
+  salesPlans      SalesPlan[]
 }
 
 enum Role {
@@ -37,18 +38,18 @@ enum Role {
 }
 
 model User {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  email          String   @unique
+  email          String       @unique
   passwordHash   String
   name           String
-  role           Role     @default(MANAGER)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
+  role           Role         @default(MANAGER)
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
 
-  timeEntries    TimeEntry[]
-  operations     Operation[] @relation("OperationCreatedBy")
+  timeEntries TimeEntry[]
+  operations  Operation[] @relation("OperationCreatedBy")
 }
 
 // ---------------------------------------------------------------------------
@@ -62,7 +63,7 @@ enum ClientStatus {
 }
 
 model Client {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name           String
@@ -73,8 +74,8 @@ model Client {
   contactPhone   String?
   status         ClientStatus @default(ACTIVE)
   notes          String?
-  isDemo         Boolean  @default(false)
-  createdAt      DateTime @default(now())
+  isDemo         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
 
   projects      Project[]
   subscriptions Subscription[]
@@ -94,27 +95,27 @@ enum ProjectStatus {
 }
 
 model Project {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   clientId       String
-  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   parentId String?
   parent   Project?  @relation("ProjectHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
   children Project[] @relation("ProjectHierarchy")
 
-  name           String
-  description    String?
-  typeValueId    String?
-  typeValue      DictionaryValue? @relation(fields: [typeValueId], references: [id])
-  status         ProjectStatus @default(ACTIVE)
-  startDate      DateTime?
-  endDate        DateTime?
-  hourlyRate     Decimal? @db.Decimal(14, 2)
-  budgetHours    Decimal? @db.Decimal(10, 2)
-  isDemo         Boolean  @default(false)
-  createdAt      DateTime @default(now())
+  name        String
+  description String?
+  typeValueId String?
+  typeValue   DictionaryValue? @relation(fields: [typeValueId], references: [id])
+  status      ProjectStatus    @default(ACTIVE)
+  startDate   DateTime?
+  endDate     DateTime?
+  hourlyRate  Decimal?         @db.Decimal(14, 2)
+  budgetHours Decimal?         @db.Decimal(10, 2)
+  isDemo      Boolean          @default(false)
+  createdAt   DateTime         @default(now())
 
   operations    Operation[]
   timeEntries   TimeEntry[]
@@ -132,14 +133,14 @@ model Project {
 // ---------------------------------------------------------------------------
 
 model DictionaryType {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   code           String
   name           String
   description    String?
-  isSystem       Boolean  @default(false)
-  createdAt      DateTime @default(now())
+  isSystem       Boolean      @default(false)
+  createdAt      DateTime     @default(now())
 
   values DictionaryValue[]
 
@@ -147,15 +148,15 @@ model DictionaryType {
 }
 
 model DictionaryValue {
-  id               String   @id @default(uuid())
+  id               String         @id @default(uuid())
   dictionaryTypeId String
   dictionaryType   DictionaryType @relation(fields: [dictionaryTypeId], references: [id], onDelete: Cascade)
   organizationId   String
   code             String
   name             String
   color            String?
-  sortOrder        Int      @default(0)
-  isActive         Boolean  @default(true)
+  sortOrder        Int            @default(0)
+  isActive         Boolean        @default(true)
 
   operations      Operation[]      @relation("OperationCategory")
   paymentOps      Operation[]      @relation("OperationPaymentMethod")
@@ -177,12 +178,12 @@ enum ProductType {
 }
 
 model LicenseProduct {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  name        String
-  type        ProductType @default(LICENSE)
+  name            String
+  type            ProductType      @default(LICENSE)
   categoryValueId String?
   categoryValue   DictionaryValue? @relation("LicenseProductCategory", fields: [categoryValueId], references: [id])
 
@@ -192,7 +193,7 @@ model LicenseProduct {
   // has no billing cycle to advance) — null there, required for LICENSE.
   defaultPrice              Decimal @db.Decimal(14, 2)
   defaultDurationMonths     Int?    @default(1)
-  defaultVendorSharePercent Decimal @db.Decimal(5, 2) @default(50)
+  defaultVendorSharePercent Decimal @default(50) @db.Decimal(5, 2)
   defaultTaxable            Boolean @default(true)
 
   // Mirror of defaultDurationMonths for a WORK product: an estimated
@@ -218,7 +219,7 @@ enum SubscriptionStatus {
 }
 
 model Subscription {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -257,7 +258,7 @@ model Subscription {
 // Always carries clientId directly (even though projectId is optional) so
 // revenue is never invisible to per-client reporting.
 model Sale {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -305,7 +306,7 @@ enum OperationStatus {
 }
 
 model Operation {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -337,7 +338,7 @@ model Operation {
   // for INCOME, vendorSharePercent is the cut owed to a licensing vendor
   // (0 for services/support), taxable marks whether this money counts
   // toward the accrued tax reserve (false for untaxed "card" payments).
-  vendorSharePercent Decimal @db.Decimal(5, 2) @default(0)
+  vendorSharePercent Decimal @default(0) @db.Decimal(5, 2)
   taxable            Boolean @default(true)
 
   subscriptionId String?
@@ -347,7 +348,7 @@ model Operation {
   sale   Sale?   @relation(fields: [saleId], references: [id], onDelete: SetNull)
 
   createdById String?
-  createdBy   User?   @relation("OperationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?    @relation("OperationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
 
   @@index([organizationId, accrualDate])
@@ -375,7 +376,7 @@ enum RequestPriority {
 }
 
 model Request {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -384,7 +385,7 @@ model Request {
 
   title       String
   description String?
-  status      RequestStatus @default(OPEN)
+  status      RequestStatus   @default(OPEN)
   priority    RequestPriority @default(MEDIUM)
 
   requestTypeValueId String?
@@ -401,7 +402,7 @@ model Request {
 }
 
 model TimeEntry {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -423,4 +424,28 @@ model TimeEntry {
   @@index([organizationId])
   @@index([projectId])
   @@index([requestId])
+}
+
+/// A sales target. `month` null means the annual plan for that year, 1..12 a
+/// monthly one — the two are stored side by side and set independently, so a
+/// year's monthly plans don't have to add up to its annual plan (and the UI
+/// shows the difference when they don't).
+///
+/// Uniqueness of (organizationId, year, month) is enforced in the service
+/// rather than by a unique index: Postgres treats NULLs as distinct, so an
+/// index would happily allow two annual plans for the same year.
+model SalesPlan {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  year   Int
+  month  Int?
+  amount Decimal @db.Decimal(14, 2)
+
+  isDemo    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, year])
 }
