@@ -167,10 +167,28 @@ export async function seedDemoData(organizationId: string, userId: string) {
     },
   });
 
+  // A finished project, so the completion state and the "Срок реализации"
+  // report have something real to show right after seeding: explicit start and
+  // end dates give the timeline a planned start instead of a derived one.
+  const projectSferaMigration = await prisma.project.create({
+    data: {
+      organizationId,
+      isDemo: true,
+      clientId: clientSfera.id,
+      name: "Миграция данных из Битрикс24",
+      typeValueId: dict.projectType.implementation ?? null,
+      status: "CLOSED",
+      startDate: dateInPast(7, 10),
+      endDate: dateInPast(4, 22),
+      hourlyRate: 2500,
+    },
+  });
+
   const projectByKey: Record<string, string> = {
     romashkaMain: projectRomashkaMain.id,
     romashkaLicense: projectRomashkaLicense.id,
     sfera: projectSfera.id,
+    sferaMigration: projectSferaMigration.id,
     kuznetsovMain: projectKuznetsovMain.id,
     kuznetsovLicense: projectKuznetsovLicense.id,
     technopark: projectTechnopark.id,
@@ -522,7 +540,7 @@ export async function seedDemoData(organizationId: string, userId: string) {
 
   return {
     clients: 4,
-    projects: 6,
+    projects: 7,
     licenseProducts: 6,
     subscriptions: 4,
     sales: salesCount,

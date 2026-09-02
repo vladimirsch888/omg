@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { CornerDownRight, FolderKanban, Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, CornerDownRight, FolderKanban, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { api } from "../api/client";
 import { Client, DictionaryType, Project } from "../api/types";
 import {
@@ -19,9 +19,9 @@ import {
 } from "../components/ui";
 
 const statusLabel: Record<Project["status"], string> = {
-  ACTIVE: "Активен",
+  ACTIVE: "В работе",
   PAUSED: "Приостановлен",
-  CLOSED: "Закрыт",
+  CLOSED: "Завершён",
 };
 
 const statusTone: Record<Project["status"], BadgeTone> = {
@@ -85,6 +85,25 @@ export function ProjectsPage() {
     }
   }
 
+  /**
+   * Marks the project finished (or puts it back to work). Closing stamps
+   * today as the end date so the project's report has a real endpoint;
+   * reopening clears it rather than leaving a false completion date.
+   */
+  async function toggleFinished(p: Project) {
+    const finishing = p.status !== "CLOSED";
+    try {
+      await api.patch(`/projects/${p.id}`, {
+        status: finishing ? "CLOSED" : "ACTIVE",
+        endDate: finishing ? new Date().toISOString() : null,
+      });
+      ui.toast(finishing ? `Проект «${p.name}» завершён` : `Проект «${p.name}» снова в работе`, "success");
+      load();
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось изменить статус проекта", "error");
+    }
+  }
+
   async function handleDelete(p: Project) {
     const confirmed = await ui.confirm({
       title: `Удалить проект «${p.name}»?`,
@@ -133,10 +152,15 @@ export function ProjectsPage() {
       ) : (
         <div className="flex flex-col gap-3">
           {projects.map((p) => (
-            <Card key={p.id} bodyClassName="p-3.5 sm:p-4">
+            <Card key={p.id} bodyClassName="p-3.5 sm:p-4" className={p.status === "CLOSED" ? "opacity-70" : ""}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <Link to={`/projects/${p.id}`} className="text-sm font-medium text-ink transition-colors hover:text-accent">
+                  <Link
+                    to={`/projects/${p.id}`}
+                    className={`text-sm font-medium transition-colors hover:text-accent ${
+                      p.status === "CLOSED" ? "text-ink-muted" : "text-ink"
+                    }`}
+                  >
                     {p.name}
                   </Link>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
@@ -145,7 +169,15 @@ export function ProjectsPage() {
                     {p.typeValue?.name && <span className="text-ink-subtle">{p.typeValue.name}</span>}
                   </div>
                 </div>
-                <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(p)} className="hover:text-expense" />
+                <div className="flex shrink-0 items-center gap-1">
+                  <IconButton
+                    icon={p.status === "CLOSED" ? RotateCcw : CheckCircle2}
+                    label={p.status === "CLOSED" ? "Вернуть в работу" : "Проект завершён"}
+                    onClick={() => toggleFinished(p)}
+                    className="hover:text-income"
+                  />
+                  <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(p)} className="hover:text-expense" />
+                </div>
               </div>
 
               {p.children && p.children.length > 0 && (
@@ -154,17 +186,27 @@ export function ProjectsPage() {
                     <li key={sp.id} className="flex items-center justify-between gap-3">
                       <Link
                         to={`/projects/${sp.id}`}
-                        className="inline-flex min-w-0 items-center gap-1.5 text-sm text-ink-muted transition-colors hover:text-accent"
+                        className={`inline-flex min-w-0 items-center gap-1.5 text-sm transition-colors hover:text-accent ${
+                          sp.status === "CLOSED" ? "text-ink-subtle line-through decoration-line-strong" : "text-ink-muted"
+                        }`}
                       >
                         <CornerDownRight className="size-3.5 shrink-0 text-ink-subtle" strokeWidth={1.8} />
                         <span className="truncate">{sp.name}</span>
                       </Link>
-                      <IconButton
-                        icon={Trash2}
-                        label="Удалить подпроект"
-                        onClick={() => handleDelete(sp)}
-                        className="hover:text-expense"
-                      />
+                      <span className="flex shrink-0 items-center gap-1">
+                        <IconButton
+                          icon={sp.status === "CLOSED" ? RotateCcw : CheckCircle2}
+                          label={sp.status === "CLOSED" ? "Вернуть в работу" : "Подпроект завершён"}
+                          onClick={() => toggleFinished(sp)}
+                          className="hover:text-income"
+                        />
+                        <IconButton
+                          icon={Trash2}
+                          label="Удалить подпроект"
+                          onClick={() => handleDelete(sp)}
+                          className="hover:text-expense"
+                        />
+                      </span>
                     </li>
                   ))}
                 </ul>

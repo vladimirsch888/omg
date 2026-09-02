@@ -7,9 +7,9 @@ import { Badge, Card, PageSkeleton, StatCard, StatusBadge, type BadgeTone } from
 import { formatDate, formatMoney } from "../utils/format";
 
 const statusLabel: Record<Project["status"], string> = {
-  ACTIVE: "Активен",
+  ACTIVE: "В работе",
   PAUSED: "Приостановлен",
-  CLOSED: "Закрыт",
+  CLOSED: "Завершён",
 };
 
 const statusTone: Record<Project["status"], BadgeTone> = {
@@ -68,9 +68,19 @@ export function ClientDetailPage() {
         {client.projects.length > 0 ? (
           <ul className="flex flex-col gap-2.5">
             {client.projects.map((p) => (
-              <li key={p.id} className="rounded-xl border border-line bg-raised/40 p-3">
+              <li
+                key={p.id}
+                className={`rounded-xl border border-line bg-raised/40 p-3 ${
+                  p.status === "CLOSED" ? "opacity-70" : ""
+                }`}
+              >
                 <div className="flex items-center justify-between gap-3">
-                  <Link to={`/projects/${p.id}`} className="text-sm font-medium text-ink transition-colors hover:text-accent">
+                  <Link
+                    to={`/projects/${p.id}`}
+                    className={`text-sm font-medium transition-colors hover:text-accent ${
+                      p.status === "CLOSED" ? "text-ink-muted" : "text-ink"
+                    }`}
+                  >
                     {p.name}
                   </Link>
                   <StatusBadge label={statusLabel[p.status]} tone={statusTone[p.status]} />

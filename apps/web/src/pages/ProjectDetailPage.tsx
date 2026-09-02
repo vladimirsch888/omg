@@ -1,6 +1,19 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowDownRight, ArrowLeft, ArrowUpRight, Clock, CornerDownRight, TrendingUp, Trash2 } from "lucide-react";
+import {
+  ArrowDownRight,
+  ArrowLeft,
+  ArrowUpRight,
+  CalendarCheck2,
+  CalendarRange,
+  CheckCircle2,
+  Clock,
+  CornerDownRight,
+  RotateCcw,
+  TrendingUp,
+  Trash2,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { api } from "../api/client";
 import { Operation, Project, RequestTicket } from "../api/types";
 import {
@@ -13,10 +26,23 @@ import {
   PageSkeleton,
   RowCard,
   StatCard,
+  StatusBadge,
   useUi,
   type BadgeTone,
 } from "../components/ui";
 import { formatDate, formatMoney } from "../utils/format";
+
+interface ProjectTimeline {
+  startedAt: string | null;
+  /** "planned" — дата начала заполнена в проекте, "activity" — выведена из работ. */
+  startSource: "planned" | "activity" | null;
+  finishedAt: string | null;
+  isFinished: boolean;
+  firstActivityAt: string | null;
+  lastActivityAt: string | null;
+  calendarDays: number | null;
+  workingDays: number | null;
+}
 
 interface ProjectSummary {
   income: number;
@@ -24,6 +50,28 @@ interface ProjectSummary {
   profit: number;
   hours: number;
   includedProjectIds: string[];
+  timeline: ProjectTimeline;
+}
+
+const projectStatusLabel: Record<Project["status"], string> = {
+  ACTIVE: "В работе",
+  PAUSED: "Приостановлен",
+  CLOSED: "Завершён",
+};
+
+const projectStatusTone: Record<Project["status"], BadgeTone> = {
+  ACTIVE: "income",
+  PAUSED: "reserve",
+  CLOSED: "neutral",
+};
+
+/** «5 дней» / «21 день» / «102 дня» */
+function pluralDays(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return "день";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "дня";
+  return "дней";
 }
 
 const requestStatusLabel: Record<RequestTicket["status"], string> = {
@@ -67,6 +115,41 @@ export function ProjectDetailPage() {
 
   const hasChildren = (project.children?.length ?? 0) > 0;
   const rollupHint = hasChildren ? "с учётом подпроектов" : undefined;
+
+  const isFinished = project?.status === "CLOSED";
+
+  /**
+   * "Проект завершён" closes the project and stamps today as its end date, so
+   * the actual duration below has a real endpoint. Reopening clears the date
+   * again — an accidental close mustn't leave a fake completion date behind.
+   */
+  async function toggleFinished() {
+    if (!project) return;
+    const finishing = project.status !== "CLOSED";
+    if (finishing) {
+      const confirmed = await ui.confirm({
+        title: `Завершить проект «${project.name}»?`,
+        message: "Проект станет серым в списках, а сегодняшняя дата запишется как дата окончания работ. Это всегда можно отменить.",
+        confirmLabel: "Завершить",
+      });
+      if (!confirmed) return;
+    }
+    try {
+      await api.patch(`/projects/${project.id}`, {
+        status: finishing ? "CLOSED" : "ACTIVE",
+        endDate: finishing ? new Date().toISOString() : null,
+      });
+      ui.toast(finishing ? "Проект завершён" : "Проект снова в работе", "success");
+      const [{ data: fresh }, { data: freshSummary }] = await Promise.all([
+        api.get<Project>(`/projects/${project.id}`),
+        api.get<ProjectSummary>(`/projects/${project.id}/summary`),
+      ]);
+      setProject(fresh);
+      setSummary(freshSummary);
+    } catch (err: any) {
+      ui.toast(err.response?.data?.error ?? "Не удалось изменить статус проекта", "error");
+    }
+  }
 
   async function handleDelete() {
     const confirmed = await ui.confirm({
@@ -140,7 +223,16 @@ export function ProjectDetailPage() {
             <ArrowLeft className="size-3.5" strokeWidth={1.8} />
             Все проекты
           </Link>
-          <h1 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">{project.name}</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-2.5">
+            <h1
+              className={`text-xl font-semibold tracking-tight sm:text-2xl ${
+                isFinished ? "text-ink-muted" : ""
+              }`}
+            >
+              {project.name}
+            </h1>
+            <StatusBadge label={projectStatusLabel[project.status]} tone={projectStatusTone[project.status]} />
+          </div>
           <p className="mt-1 text-sm text-ink-muted">
             Клиент:{" "}
             <Link to={`/clients/${project.clientId}`} className="text-ink transition-colors hover:text-accent">
@@ -149,9 +241,18 @@ export function ProjectDetailPage() {
             {project.parentId && " · подпроект"}
           </p>
         </div>
-        <Button variant="danger" icon={Trash2} onClick={handleDelete}>
-          Удалить проект
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant={isFinished ? "secondary" : "primary"}
+            icon={isFinished ? RotateCcw : CheckCircle2}
+            onClick={toggleFinished}
+          >
+            {isFinished ? "Вернуть в работу" : "Проект завершён"}
+          </Button>
+          <Button variant="danger" icon={Trash2} onClick={handleDelete}>
+            Удалить
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
@@ -160,6 +261,63 @@ export function ProjectDetailPage() {
         <StatCard label="Прибыль" value={formatMoney(summary.profit)} tone="accent" icon={TrendingUp} />
         <StatCard label="Часы" value={`${summary.hours} ч`} icon={Clock} hint={rollupHint} />
       </div>
+
+      <Card
+        title="Срок реализации"
+        action={
+          <span className="text-xs text-ink-subtle">
+            {summary.timeline.isFinished ? "фактический" : "идёт сейчас"}
+          </span>
+        }
+      >
+        {summary.timeline.startedAt ? (
+          <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <TimelineFact
+                icon={CalendarRange}
+                label="Начало работ"
+                value={formatDate(summary.timeline.startedAt)}
+                hint={
+                  summary.timeline.startSource === "planned"
+                    ? "дата начала из карточки проекта"
+                    : "первая операция, заявка или списанные часы"
+                }
+              />
+              <TimelineFact
+                icon={CalendarCheck2}
+                label={summary.timeline.isFinished ? "Завершение" : "Пока не завершён"}
+                value={
+                  summary.timeline.finishedAt ? formatDate(summary.timeline.finishedAt) : "в работе"
+                }
+                hint={
+                  summary.timeline.isFinished
+                    ? "дата окончания работ по проекту"
+                    : "срок считается по сегодняшний день"
+                }
+                tone={summary.timeline.isFinished ? "neutral" : "accent"}
+              />
+              <TimelineFact
+                icon={Clock}
+                label={summary.timeline.isFinished ? "Фактический срок" : "Идёт уже"}
+                value={`${summary.timeline.calendarDays} ${pluralDays(summary.timeline.calendarDays ?? 0)}`}
+                hint={`${summary.timeline.workingDays} раб. дн. (без выходных)`}
+                tone="accent"
+              />
+            </div>
+
+            {summary.timeline.lastActivityAt && (
+              <p className="mt-4 border-t border-line pt-3 text-[11px] leading-relaxed text-ink-subtle">
+                Последняя активность по проекту — {formatDate(summary.timeline.lastActivityAt)}.
+                {hasChildren && " Срок считается с учётом подпроектов."}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="py-4 text-center text-sm text-ink-subtle">
+            По проекту ещё нет ни операций, ни заявок, ни списанных часов — считать срок не от чего.
+          </p>
+        )}
+      </Card>
 
       {hasChildren && (
         <Card title="Подпроекты" action={<span className="text-xs text-ink-subtle">их деньги и часы включены выше</span>}>
@@ -217,6 +375,38 @@ export function ProjectDetailPage() {
           empty={<p className="py-4 text-center text-sm text-ink-subtle">Заявок пока нет</p>}
         />
       </Card>
+    </div>
+  );
+}
+
+/** One fact in the timeline report: label, value, and where the value came from. */
+function TimelineFact({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  tone = "neutral",
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  hint?: string;
+  tone?: "neutral" | "accent";
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <span
+        className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${
+          tone === "accent" ? "bg-accent-soft text-accent" : "bg-raised text-ink-muted"
+        }`}
+      >
+        <Icon className="size-4" strokeWidth={1.75} />
+      </span>
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-ink-muted">{label}</div>
+        <div className="mt-0.5 text-base font-semibold text-ink tnum">{value}</div>
+        {hint && <div className="mt-0.5 text-[11px] leading-relaxed text-ink-subtle">{hint}</div>}
+      </div>
     </div>
   );
 }

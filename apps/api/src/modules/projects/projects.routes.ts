@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../prisma";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { AppError } from "../../utils/errors";
-import { getProjectAndDescendantIds } from "./projects.service";
+import { buildProjectTimeline, getProjectAndDescendantIds } from "./projects.service";
 import type { AppEnv } from "../../types/hono";
 
 export const projectsRouter = new Hono<AppEnv>();
@@ -132,7 +132,7 @@ projectsRouter.get("/:id/summary", async (c) => {
 
   const projectIds = await getProjectAndDescendantIds(organizationId, project.id);
 
-  const [incomeAgg, expenseAgg, hoursAgg] = await Promise.all([
+  const [incomeAgg, expenseAgg, hoursAgg, operationDates, timeEntryDates, requestDates] = await Promise.all([
     prisma.operation.aggregate({
       where: { organizationId, projectId: { in: projectIds }, type: "INCOME" },
       _sum: { amount: true },
@@ -145,10 +145,51 @@ projectsRouter.get("/:id/summary", async (c) => {
       where: { organizationId, projectId: { in: projectIds } },
       _sum: { hours: true },
     }),
+    // Real activity on the project, used to bracket its actual timeline.
+    prisma.operation.aggregate({
+      where: { organizationId, projectId: { in: projectIds } },
+      _min: { accrualDate: true },
+      _max: { accrualDate: true },
+    }),
+    prisma.timeEntry.aggregate({
+      where: { organizationId, projectId: { in: projectIds } },
+      _min: { date: true },
+      _max: { date: true },
+    }),
+    prisma.request.aggregate({
+      where: { organizationId, projectId: { in: projectIds } },
+      _min: { createdAt: true },
+      _max: { createdAt: true },
+    }),
   ]);
 
   const income = Number(incomeAgg._sum.amount ?? 0);
   const expense = Number(expenseAgg._sum.amount ?? 0);
+
+  const earliest = (dates: (Date | null)[]) => {
+    const known = dates.filter((d): d is Date => d !== null);
+    return known.length > 0 ? new Date(Math.min(...known.map((d) => d.getTime()))) : null;
+  };
+  const latest = (dates: (Date | null)[]) => {
+    const known = dates.filter((d): d is Date => d !== null);
+    return known.length > 0 ? new Date(Math.max(...known.map((d) => d.getTime()))) : null;
+  };
+
+  const timeline = buildProjectTimeline({
+    startDate: project.startDate,
+    endDate: project.endDate,
+    isFinished: project.status === "CLOSED",
+    firstActivityAt: earliest([
+      operationDates._min.accrualDate,
+      timeEntryDates._min.date,
+      requestDates._min.createdAt,
+    ]),
+    lastActivityAt: latest([
+      operationDates._max.accrualDate,
+      timeEntryDates._max.date,
+      requestDates._max.createdAt,
+    ]),
+  });
 
   return c.json({
     projectId: project.id,
@@ -157,5 +198,6 @@ projectsRouter.get("/:id/summary", async (c) => {
     expense,
     profit: income - expense,
     hours: Number(hoursAgg._sum.hours ?? 0),
+    timeline,
   });
 });
