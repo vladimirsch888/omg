@@ -24,6 +24,7 @@ interface SubscriptionForBilling {
   vendorSharePercent: unknown; // Prisma.Decimal
   taxable: boolean;
   isDemo: boolean;
+  nextBillingDate: Date;
   licenseProduct: { name: string; categoryValueId: string | null };
   client: { name: string };
 }
@@ -34,6 +35,15 @@ interface SubscriptionForBilling {
  * applies), then advances the subscription's nextBillingDate. Used both
  * when a subscription is first created and by the "Продлить" (renew)
  * action — the one thing the client asked to be a single button.
+ *
+ * `billingDate` is recorded as the operation's accrual/payment date — the
+ * caller decides what that should mean (see call sites). The *schedule*
+ * always advances from the subscription's own current `nextBillingDate`
+ * (one durationMonths forward), never from `billingDate`: an overdue
+ * renewal paid today must not drag the next due date along with it, or a
+ * late payment would silently reschedule the whole subscription and (via
+ * getMonthSummary) make the just-paid period vanish into a past month
+ * while the subscription kept showing as still "pending" this month.
  *
  * `priceOverride`, when given, bills this period at that amount instead of
  * the subscription's stored price, and persists it as the subscription's
@@ -96,7 +106,7 @@ export async function billSubscription(
   const updatedSubscription = await prisma.subscription.update({
     where: { id: subscription.id },
     data: {
-      nextBillingDate: addMonths(billingDate, subscription.durationMonths),
+      nextBillingDate: addMonths(subscription.nextBillingDate, subscription.durationMonths),
       ...(priceOverride !== undefined ? { price: priceOverride } : {}),
     },
   });
@@ -110,9 +120,17 @@ export async function billSubscription(
  * what's still projected to come in from subscriptions not yet renewed this
  * month (an ACTIVE subscription whose nextBillingDate falls on/before the
  * end of this month — including anything overdue from a missed renewal —
- * counts as still expected). A subscription can't appear in both buckets:
- * renewing always pushes nextBillingDate at least one month out, so once
- * billed this month it drops out of "pending" on its own.
+ * counts as still expected).
+ *
+ * A subscription usually drops out of "pending" the moment it's billed this
+ * month, since renewing pushes its nextBillingDate at least one duration
+ * forward from where it was scheduled (see billSubscription — the schedule
+ * advances from the OLD due date, not from today, precisely so a late
+ * payment doesn't get lost from "renewed" here). The one case where it can
+ * legitimately still show up as pending right after being billed is when it
+ * was so overdue that even the next scheduled period also falls before the
+ * end of this month — that's not double-counting, it's two distinct unpaid
+ * periods that both happen to be due in the same calendar month.
  *
  * "Net profit" here is the waterfall's `spendable` (see
  * apps/api/src/modules/finance/waterfall.ts): the incoming amount minus

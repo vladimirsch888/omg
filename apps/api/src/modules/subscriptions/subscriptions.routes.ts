@@ -131,7 +131,12 @@ subscriptionsRouter.post("/:id/bill", async (c) => {
     throw new AppError(400, "Нельзя выставить платёж по приостановленной или отменённой подписке");
   }
 
-  const result = await billSubscription(subscription, subscription.nextBillingDate, auth.userId, body.amount);
+  // Record the operation on the date the money actually arrives (now), not
+  // the subscription's scheduled due date — an overdue renewal must show up
+  // as "renewed this month" even though it was due earlier. The schedule
+  // itself still advances from the old due date (see billSubscription), so
+  // a late payment doesn't drag future due dates along with it.
+  const result = await billSubscription(subscription, new Date(), auth.userId, body.amount);
   return c.json(result, 201);
 });
 
