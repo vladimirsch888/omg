@@ -142,6 +142,13 @@ export async function billSubscription(
  * end of this month — that's not double-counting, it's two distinct unpaid
  * periods that both happen to be due in the same calendar month.
  *
+ * `invoicedAmount` is the money we're actively waiting on: active
+ * subscriptions whose invoice has been sent but not yet paid. It is a SUBSET
+ * of what's still expected, not an addition to it — the same subscription is
+ * also counted in the pending figures until "Продлить" books the payment.
+ * Deliberately not limited to invoices sent this month: an invoice issued in
+ * August and still unpaid is money we're waiting on today.
+ *
  * "Net profit" here is the waterfall's `spendable` (see
  * apps/api/src/modules/finance/waterfall.ts): the incoming amount minus
  * BOTH the vendor's cut (vendorSharePercent) AND the tax reserve
@@ -153,7 +160,7 @@ export async function getMonthSummary(organizationId: string) {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
-  const [billedThisMonth, pendingSubscriptions] = await Promise.all([
+  const [billedThisMonth, pendingSubscriptions, invoicedSubscriptions] = await Promise.all([
     prisma.operation.findMany({
       where: {
         organizationId,
@@ -170,6 +177,10 @@ export async function getMonthSummary(organizationId: string) {
         nextBillingDate: { lt: monthEnd },
       },
       select: { price: true, vendorSharePercent: true, taxable: true },
+    }),
+    prisma.subscription.findMany({
+      where: { organizationId, status: "ACTIVE", invoiceSentAt: { not: null } },
+      select: { price: true },
     }),
   ]);
 
@@ -189,10 +200,14 @@ export async function getMonthSummary(organizationId: string) {
     pendingNetProfit += computeWaterfall(price, Number(s.vendorSharePercent), s.taxable).spendable;
   }
 
+  const invoicedAmount = invoicedSubscriptions.reduce((sum, s) => sum + Number(s.price), 0);
+
   return {
     totalExpected: renewedAmount + pendingAmount,
     renewedAmount,
     renewedNetProfit,
     pendingNetProfit,
+    invoicedAmount,
+    invoicedCount: invoicedSubscriptions.length,
   };
 }

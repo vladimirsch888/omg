@@ -50,6 +50,11 @@ const statusTone: Record<Subscription["status"], BadgeTone> = {
   CANCELLED: "neutral",
 };
 
+/** «по 1 подписке», «по 2 подпискам» — dative, so only the singular differs. */
+function pluralSubscriptions(count: number): string {
+  return count % 10 === 1 && count % 100 !== 11 ? "подписке" : "подпискам";
+}
+
 /** Renewals due within a week are what the page is really for — flag them. */
 function dueTone(nextBillingDate: string): BadgeTone {
   const days = (new Date(nextBillingDate).getTime() - Date.now()) / 86_400_000;
@@ -361,7 +366,7 @@ export function SubscriptionsPage() {
       />
 
       {monthSummary && (
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
           <StatCard
             label="Общая сумма подписок в этом месяце"
             value={formatMoney(monthSummary.totalExpected)}
@@ -385,6 +390,19 @@ export function SubscriptionsPage() {
             value={formatMoney(monthSummary.renewedAmount)}
             tone="income"
             icon={CreditCard}
+          />
+          <StatCard
+            label="Ожидаем поступление"
+            value={formatMoney(monthSummary.invoicedAmount)}
+            tone="reserve"
+            icon={FileCheck2}
+            hint={
+              monthSummary.invoicedCount > 0
+                ? `Счёт отправлен по ${monthSummary.invoicedCount} ${pluralSubscriptions(
+                    monthSummary.invoicedCount
+                  )} — входит в ожидаемую сумму, а не добавляется к ней`
+                : "Отметьте «Счёт отправлен» — сумма таких подписок появится здесь"
+            }
           />
           <StatCard
             label="Чистая прибыль с продлённых"

@@ -236,6 +236,9 @@ export interface SubscriptionMonthSummary {
   renewedAmount: number;
   renewedNetProfit: number;
   pendingNetProfit: number;
+  /** Invoices sent but not yet paid — a subset of what's still expected. */
+  invoicedAmount: number;
+  invoicedCount: number;
 }
 
 export interface User {
