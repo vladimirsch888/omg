@@ -41,6 +41,7 @@ async function loadDictionaryMaps(organizationId: string) {
     projectType: maps.project_type ?? {},
     paymentMethod: maps.payment_method ?? {},
     requestType: maps.request_type ?? {},
+    account: maps.account ?? {},
   };
 }
 
@@ -418,6 +419,7 @@ export async function seedDemoData(organizationId: string, userId: string) {
         paymentDate: accrualDate,
         categoryValueId: dict.category[stream.categoryCode] ?? null,
         paymentMethodValueId: dict.paymentMethod.bank_account ?? null,
+        accountValueId: dict.account.main_account ?? null,
         counterparty: stream.counterparty,
         description: stream.description,
         createdById: userId,
@@ -426,6 +428,26 @@ export async function seedDemoData(organizationId: string, userId: string) {
   }
   for (const stream of streams) pushOperationsForStream(stream, projectByKey[stream.projectKey]);
   for (const stream of overheadStreams) pushOperationsForStream(stream, null);
+
+  // A tax payment for the previous quarter: an EXPENSE flagged taxPayment,
+  // so the dashboard's "резерв на налог" visibly shrinks after paying.
+  operationsToCreate.push({
+    organizationId,
+    isDemo: true,
+    projectId: null,
+    type: "EXPENSE",
+    status: "ACTUAL",
+    amount: 38000,
+    accrualDate: dateInPast(1, 25),
+    paymentDate: dateInPast(1, 25),
+    categoryValueId: dict.category.taxes ?? null,
+    paymentMethodValueId: dict.paymentMethod.bank_account ?? null,
+    accountValueId: dict.account.main_account ?? null,
+    taxPayment: true,
+    counterparty: "ФНС",
+    description: "Авансовый платёж по УСН за квартал",
+    createdById: userId,
+  });
 
   // One planned (not yet paid) operation, to demonstrate PnL vs. ДДС diverging.
   operationsToCreate.push({
@@ -561,6 +583,17 @@ export async function clearDemoData(organizationId: string) {
   const requests = await prisma.request.deleteMany({ where: { organizationId, isDemo: true } });
   const sales = await prisma.sale.deleteMany({ where: { organizationId, isDemo: true } });
   const subscriptions = await prisma.subscription.deleteMany({ where: { organizationId, isDemo: true } });
+  // A demo product that a REAL subscription or sale was created on can't be
+  // deleted (the relation is Restrict) — it has become real data, so it's
+  // kept and simply loses its demo flag instead of failing the whole clear.
+  await prisma.licenseProduct.updateMany({
+    where: {
+      organizationId,
+      isDemo: true,
+      OR: [{ subscriptions: { some: {} } }, { sales: { some: {} } }],
+    },
+    data: { isDemo: false },
+  });
   const licenseProducts = await prisma.licenseProduct.deleteMany({ where: { organizationId, isDemo: true } });
   const projects = await prisma.project.deleteMany({ where: { organizationId, isDemo: true } });
   const clients = await prisma.client.deleteMany({ where: { organizationId, isDemo: true } });

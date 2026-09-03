@@ -14,8 +14,9 @@ import {
   Trash2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { api } from "../api/client";
-import { Operation, Project, RequestTicket } from "../api/types";
+import { api, errorMessage } from "../api/client";
+import { Operation, Project, ProjectEffort, RequestTicket } from "../api/types";
+import { useAuth } from "../context/AuthContext";
 import {
   Badge,
   Button,
@@ -30,7 +31,7 @@ import {
   useUi,
   type BadgeTone,
 } from "../components/ui";
-import { formatDate, formatMoney } from "../utils/format";
+import { formatDate, formatHours, formatMoney } from "../utils/format";
 
 interface ProjectTimeline {
   startedAt: string | null;
@@ -50,6 +51,7 @@ interface ProjectSummary {
   profit: number;
   hours: number;
   includedProjectIds: string[];
+  effort: ProjectEffort;
   timeline: ProjectTimeline;
 }
 
@@ -98,16 +100,21 @@ export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const ui = useUi();
+  const { canEdit } = useAuth();
   const [project, setProject] = useState<Project | null>(null);
   const [summary, setSummary] = useState<ProjectSummary | null>(null);
   const [operations, setOperations] = useState<Operation[]>([]);
+  const [operationsTotal, setOperationsTotal] = useState(0);
   const [requests, setRequests] = useState<RequestTicket[]>([]);
 
   useEffect(() => {
     if (!id) return;
     api.get<Project>(`/projects/${id}`).then((res) => setProject(res.data));
     api.get<ProjectSummary>(`/projects/${id}/summary`).then((res) => setSummary(res.data));
-    api.get(`/operations`, { params: { projectId: id, pageSize: 20 } }).then((res) => setOperations(res.data.items));
+    api.get(`/operations`, { params: { projectId: id, pageSize: 20 } }).then((res) => {
+      setOperations(res.data.items);
+      setOperationsTotal(res.data.total);
+    });
     api.get<RequestTicket[]>(`/requests`, { params: { projectId: id } }).then((res) => setRequests(res.data));
   }, [id]);
 
@@ -146,8 +153,8 @@ export function ProjectDetailPage() {
       ]);
       setProject(fresh);
       setSummary(freshSummary);
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось изменить статус проекта", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось изменить статус проекта"), "error");
     }
   }
 
@@ -165,8 +172,8 @@ export function ProjectDetailPage() {
       await api.delete(`/projects/${project!.id}`);
       ui.toast("Проект удалён", "success");
       navigate("/projects");
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось удалить проект", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось удалить проект"), "error");
     }
   }
 
@@ -218,7 +225,7 @@ export function ProjectDetailPage() {
         <div className="min-w-0">
           <Link
             to="/projects"
-            className="inline-flex items-center gap-1.5 text-xs text-ink-muted transition-colors hover:text-accent"
+            className="-my-2 inline-flex min-h-10 items-center gap-1.5 py-2 text-xs text-ink-muted transition-colors hover:text-accent"
           >
             <ArrowLeft className="size-3.5" strokeWidth={1.8} />
             Все проекты
@@ -235,32 +242,101 @@ export function ProjectDetailPage() {
           </div>
           <p className="mt-1 text-sm text-ink-muted">
             Клиент:{" "}
-            <Link to={`/clients/${project.clientId}`} className="text-ink transition-colors hover:text-accent">
+            <Link to={`/clients/${project.clientId}`} className="-my-1.5 inline-flex min-h-9 items-center py-1.5 text-ink transition-colors hover:text-accent">
               {project.client?.name}
             </Link>
             {project.parentId && " · подпроект"}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant={isFinished ? "secondary" : "primary"}
-            icon={isFinished ? RotateCcw : CheckCircle2}
-            onClick={toggleFinished}
-          >
-            {isFinished ? "Вернуть в работу" : "Проект завершён"}
-          </Button>
-          <Button variant="danger" icon={Trash2} onClick={handleDelete}>
-            Удалить
-          </Button>
-        </div>
+        {canEdit && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant={isFinished ? "secondary" : "primary"}
+              icon={isFinished ? RotateCcw : CheckCircle2}
+              onClick={toggleFinished}
+            >
+              {isFinished ? "Вернуть в работу" : "Проект завершён"}
+            </Button>
+            <Button variant="danger" icon={Trash2} onClick={handleDelete}>
+              Удалить
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard label="Доход" value={formatMoney(summary.income)} tone="income" icon={ArrowUpRight} hint={rollupHint} />
         <StatCard label="Расход" value={formatMoney(summary.expense)} tone="expense" icon={ArrowDownRight} hint={rollupHint} />
         <StatCard label="Прибыль" value={formatMoney(summary.profit)} tone="accent" icon={TrendingUp} />
-        <StatCard label="Часы" value={`${summary.hours} ч`} icon={Clock} hint={rollupHint} />
+        <StatCard
+          label="Часы"
+          value={formatHours(summary.hours)}
+          icon={Clock}
+          hint={
+            summary.effort.budgetHours
+              ? `из ${formatHours(summary.effort.budgetHours)} по бюджету${rollupHint ? `, ${rollupHint}` : ""}`
+              : rollupHint
+          }
+        />
       </div>
+
+      {(summary.effort.budgetHours || summary.effort.hourlyRate) && (
+        <Card
+          title="Трудозатраты: план и факт"
+          action={
+            summary.effort.budgetUsedPercent !== null ? (
+              <Badge tone={summary.effort.budgetUsedPercent > 100 ? "expense" : summary.effort.budgetUsedPercent > 80 ? "reserve" : "income"}>
+                {summary.effort.budgetUsedPercent}% бюджета
+              </Badge>
+            ) : undefined
+          }
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <TimelineFact
+              icon={Clock}
+              label="Списано часов"
+              value={formatHours(summary.effort.hours)}
+              hint={summary.effort.budgetHours ? `бюджет ${formatHours(summary.effort.budgetHours)}` : "бюджет часов не задан"}
+              tone="accent"
+            />
+            <TimelineFact
+              icon={TrendingUp}
+              label="Остаток бюджета"
+              value={
+                summary.effort.budgetHours
+                  ? formatHours(Math.max(0, summary.effort.budgetHours - summary.effort.hours))
+                  : "—"
+              }
+              hint={
+                summary.effort.budgetHours && summary.effort.hours > summary.effort.budgetHours
+                  ? `перерасход ${formatHours(summary.effort.hours - summary.effort.budgetHours)}`
+                  : "часов до исчерпания плана"
+              }
+              tone={summary.effort.budgetHours && summary.effort.hours > summary.effort.budgetHours ? "neutral" : "accent"}
+            />
+            <TimelineFact
+              icon={ArrowDownRight}
+              label="Стоимость часов"
+              value={summary.effort.laborCost !== null ? formatMoney(summary.effort.laborCost) : "—"}
+              hint={
+                summary.effort.hourlyRate !== null
+                  ? `по ставке ${formatMoney(summary.effort.hourlyRate)} / ч · прибыль с учётом часов ${formatMoney(summary.profit - (summary.effort.laborCost ?? 0))}`
+                  : "ставка не задана в карточке проекта"
+              }
+            />
+          </div>
+          {summary.effort.budgetHours ? (
+            <div className="mt-4">
+              <div className="flex h-1.5 overflow-hidden rounded-full bg-raised">
+                <div
+                  className={summary.effort.hours > summary.effort.budgetHours ? "bg-expense" : "bg-accent"}
+                  style={{ width: `${Math.min(100, (summary.effort.hours / summary.effort.budgetHours) * 100)}%` }}
+                />
+              </div>
+            </div>
+          ) : null}
+        </Card>
+      )}
 
       <Card
         title="Срок реализации"
@@ -337,7 +413,16 @@ export function ProjectDetailPage() {
         </Card>
       )}
 
-      <Card title="Последние операции">
+      <Card
+        title="Последние операции"
+        action={
+          operationsTotal > operations.length ? (
+            <Link to={`/operations?projectId=${project.id}`} className="text-xs text-accent hover:underline">
+              все {operationsTotal} →
+            </Link>
+          ) : undefined
+        }
+      >
         <DataTable
           rows={operations}
           columns={operationColumns}

@@ -31,6 +31,18 @@ jobs:
           '
 
       - name: Health check
+        env:
+          BASE_URL: ${{ secrets.PROD_URL }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
-          sleep 3
-          curl -fsS "http://${{ secrets.VPS_HOST }}/" -o /dev/null
+          # The API answers /api/health only when Node is up AND Nginx proxies to
+          # it — checking "/" alone would pass with the API down. PROD_URL is an
+          # optional secret (https://your.domain); without it the plain IP is used.
+          URL="${BASE_URL:-http://$VPS_HOST}/api/health"
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS -m 10 "$URL" | grep -q '"ok":true'; then
+              echo "API healthy"; exit 0
+            fi
+            sleep 4
+          done
+          echo "API did not become healthy at $URL"; exit 1

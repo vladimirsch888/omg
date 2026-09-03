@@ -1,17 +1,15 @@
 import { prisma } from "../../prisma";
 import { computeWaterfall } from "../finance/waterfall";
+import { addMonthsClamped, startOfMonth, startOfNextMonth } from "../../utils/dates";
+import { findVendorCostCategoryId } from "../../utils/ownership";
 
-export function addMonths(date: Date, months: number): Date {
-  const d = new Date(date);
-  d.setMonth(d.getMonth() + months);
-  return d;
-}
-
-async function getLicenseCostCategoryId(organizationId: string): Promise<string | null> {
-  const value = await prisma.dictionaryValue.findFirst({
-    where: { organizationId, code: "license_cost", dictionaryType: { code: "operation_category" } },
-  });
-  return value?.id ?? null;
+/**
+ * Next due date = previous due date + duration, keeping the billing day the
+ * subscription started on. A plain setMonth() overflows short months and a
+ * subscription started on the 31st would drift to the 3rd within two cycles.
+ */
+export function nextDueDate(previousDue: Date, durationMonths: number, startDate: Date): Date {
+  return addMonthsClamped(previousDue, durationMonths, startDate.getDate());
 }
 
 interface SubscriptionForBilling {
@@ -24,6 +22,7 @@ interface SubscriptionForBilling {
   vendorSharePercent: unknown; // Prisma.Decimal
   taxable: boolean;
   isDemo: boolean;
+  startDate: Date;
   nextBillingDate: Date;
   licenseProduct: { name: string; categoryValueId: string | null };
   client: { name: string };
@@ -82,7 +81,7 @@ export async function billSubscription(
 
   let expenseOperation = null;
   if (vendorSharePercent > 0) {
-    const categoryValueId = await getLicenseCostCategoryId(subscription.organizationId);
+    const categoryValueId = await findVendorCostCategoryId(subscription.organizationId);
     const vendorCost = Math.round((price * vendorSharePercent) / 100);
     expenseOperation = await prisma.operation.create({
       data: {
@@ -106,7 +105,7 @@ export async function billSubscription(
   const updatedSubscription = await prisma.subscription.update({
     where: { id: subscription.id },
     data: {
-      nextBillingDate: addMonths(subscription.nextBillingDate, subscription.durationMonths),
+      nextBillingDate: nextDueDate(subscription.nextBillingDate, subscription.durationMonths, subscription.startDate),
       // The "счёт отправлен" stage ends with the billing it was preparing —
       // the next period starts again with no invoice out.
       invoiceSentAt: null,
@@ -157,8 +156,8 @@ export async function billSubscription(
  */
 export async function getMonthSummary(organizationId: string) {
   const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const monthStart = startOfMonth(now);
+  const monthEnd = startOfNextMonth(now);
 
   const [billedThisMonth, pendingSubscriptions, invoicedSubscriptions] = await Promise.all([
     prisma.operation.findMany({

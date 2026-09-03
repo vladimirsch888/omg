@@ -3,16 +3,19 @@ import {
   CalendarClock,
   CreditCard,
   FileCheck2,
+  History,
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Trash2,
   TrendingUp,
   Undo2,
   Wallet,
 } from "lucide-react";
-import { api } from "../api/client";
-import { Client, LicenseProduct, Project, Subscription, SubscriptionMonthSummary } from "../api/types";
+import { api, errorMessage } from "../api/client";
+import { Client, LicenseProduct, Operation, Project, Subscription, SubscriptionMonthSummary } from "../api/types";
+import { useAuth } from "../context/AuthContext";
 import {
   Badge,
   Button,
@@ -21,7 +24,9 @@ import {
   Column,
   DataTable,
   EmptyState,
+  ExportButton,
   Field,
+  FilterBar,
   IconButton,
   Input,
   MetaItem,
@@ -36,7 +41,7 @@ import {
   useUi,
   type BadgeTone,
 } from "../components/ui";
-import { formatDate, formatMoney, toDateInputValue } from "../utils/format";
+import { dateInputToIso, downloadFile, formatDate, formatMoney, toDateInputValue, todayInput } from "../utils/format";
 
 const statusLabel: Record<Subscription["status"], string> = {
   ACTIVE: "Активна",
@@ -65,7 +70,12 @@ function dueTone(nextBillingDate: string): BadgeTone {
 
 export function SubscriptionsPage() {
   const ui = useUi();
+  const { canEdit } = useAuth();
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [history, setHistory] = useState<{ subscription: Subscription; operations: Operation[] } | null>(null);
   const [monthSummary, setMonthSummary] = useState<SubscriptionMonthSummary | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [products, setProducts] = useState<LicenseProduct[]>([]);
@@ -83,17 +93,24 @@ export function SubscriptionsPage() {
   const [durationMonths, setDurationMonths] = useState("");
   const [vendorSharePercent, setVendorSharePercent] = useState("");
   const [taxable, setTaxable] = useState(true);
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(todayInput());
   const [nextBillingDate, setNextBillingDate] = useState("");
   const [status, setStatus] = useState<Subscription["status"]>("ACTIVE");
 
   function load() {
-    api.get<Subscription[]>("/subscriptions").then((res) => setSubscriptions(res.data));
+    api
+      .get<Subscription[]>("/subscriptions", { params: { q: search || undefined, status: statusFilter || undefined } })
+      .then((res) => setSubscriptions(res.data));
     api.get<SubscriptionMonthSummary>("/subscriptions/month-summary").then((res) => setMonthSummary(res.data));
   }
 
   useEffect(() => {
-    load();
+    const timer = setTimeout(load, search ? 300 : 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, statusFilter]);
+
+  useEffect(() => {
     api.get<Client[]>("/clients").then((res) => setClients(res.data));
     // WORK products have no subscription term — only LICENSE products can be subscribed.
     api.get<LicenseProduct[]>("/license-products").then((res) => setProducts(res.data.filter((p) => p.type === "LICENSE")));
@@ -122,7 +139,7 @@ export function SubscriptionsPage() {
     setDurationMonths("");
     setVendorSharePercent("");
     setTaxable(true);
-    setStartDate(new Date().toISOString().slice(0, 10));
+    setStartDate(todayInput());
     setEditingId(null);
     setEditingSubscription(null);
     setFormOpen(true);
@@ -150,7 +167,7 @@ export function SubscriptionsPage() {
           durationMonths: Number(durationMonths),
           vendorSharePercent: Number(vendorSharePercent),
           taxable,
-          nextBillingDate: new Date(nextBillingDate).toISOString(),
+          nextBillingDate: dateInputToIso(nextBillingDate),
           status,
         });
         ui.toast("Подписка обновлена", "success");
@@ -163,14 +180,14 @@ export function SubscriptionsPage() {
           durationMonths: durationMonths ? Number(durationMonths) : undefined,
           vendorSharePercent: vendorSharePercent ? Number(vendorSharePercent) : undefined,
           taxable,
-          startDate: new Date(startDate).toISOString(),
+          startDate: dateInputToIso(startDate),
         });
         ui.toast("Подписка создана, первый платёж выставлен", "success");
       }
       setFormOpen(false);
       load();
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось сохранить подписку", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось сохранить подписку"), "error");
     } finally {
       setSaving(false);
     }
@@ -197,16 +214,41 @@ export function SubscriptionsPage() {
       await api.post(`/subscriptions/${s.id}/bill`, { amount });
       ui.toast(`Продлено на ${formatMoney(amount)}`, "success");
       load();
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось продлить подписку", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось продлить подписку"), "error");
     } finally {
       setBusyId(null);
     }
   }
 
   async function handleStatusChange(id: string, next: Subscription["status"]) {
-    await api.patch(`/subscriptions/${id}`, { status: next });
-    load();
+    try {
+      await api.patch(`/subscriptions/${id}`, { status: next });
+      ui.toast(`Статус: ${statusLabel[next].toLowerCase()}`, "success");
+      load();
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось изменить статус"), "error");
+    }
+  }
+
+  async function openHistory(s: Subscription) {
+    try {
+      const res = await api.get<Subscription & { operations: Operation[] }>(`/subscriptions/${s.id}`);
+      setHistory({ subscription: s, operations: res.data.operations ?? [] });
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось загрузить историю"), "error");
+    }
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      await downloadFile("/api/export/subscriptions.csv", "подписки.csv");
+    } catch (err) {
+      ui.toast((err as Error).message, "error");
+    } finally {
+      setExporting(false);
+    }
   }
 
   /**
@@ -226,8 +268,8 @@ export function SubscriptionsPage() {
         ui.toast(`Счёт отправлен: ${s.client?.name}`, "success");
       }
       load();
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось изменить отметку о счёте", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось изменить отметку о счёте"), "error");
     } finally {
       setBusyId(null);
     }
@@ -245,8 +287,8 @@ export function SubscriptionsPage() {
       await api.delete(`/subscriptions/${s.id}`);
       ui.toast("Подписка удалена", "success");
       load();
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось удалить подписку", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось удалить подписку"), "error");
     }
   }
 
@@ -291,7 +333,10 @@ export function SubscriptionsPage() {
       key: "duration",
       header: "Срок",
       align: "right",
-      hideBelow: "lg",
+      // The row already carries five actions; on a 1280px laptop the term
+      // column is what pushes it into horizontal scroll (it's in the card
+      // meta and the edit form anyway).
+      hideBelow: "xl",
       render: (s) => <span className="text-ink-muted">{s.durationMonths} мес.</span>,
     },
     {
@@ -305,6 +350,10 @@ export function SubscriptionsPage() {
             {formatDate(s.nextBillingDate)}
           </Badge>
           {invoiceBadge(s)}
+          {/* The status column is hidden below lg — keep the status readable there. */}
+          <span className="lg:hidden">
+            <StatusBadge label={statusLabel[s.status]} tone={statusTone[s.status]} />
+          </span>
         </div>
       ),
     },
@@ -312,16 +361,20 @@ export function SubscriptionsPage() {
       key: "status",
       header: "Статус",
       hideBelow: "lg",
-      // Without a width the select collapses to just its chevron once the
-      // row carries the invoice action too.
-      width: "14%",
-      render: (s) => (
-        <SelectCompact value={s.status} onChange={(e) => handleStatusChange(s.id, e.target.value as Subscription["status"])}>
-          <option value="ACTIVE">{statusLabel.ACTIVE}</option>
-          <option value="PAUSED">{statusLabel.PAUSED}</option>
-          <option value="CANCELLED">{statusLabel.CANCELLED}</option>
-        </SelectCompact>
-      ),
+      // A fixed width wide enough for «Приостановлена» on a 1366px screen —
+      // a percentage collapsed the select to «Активн» once the invoice
+      // action joined the row.
+      width: "10rem",
+      render: (s) =>
+        canEdit ? (
+          <SelectCompact className="min-w-36" value={s.status} onChange={(e) => handleStatusChange(s.id, e.target.value as Subscription["status"])}>
+            <option value="ACTIVE">{statusLabel.ACTIVE}</option>
+            <option value="PAUSED">{statusLabel.PAUSED}</option>
+            <option value="CANCELLED">{statusLabel.CANCELLED}</option>
+          </SelectCompact>
+        ) : (
+          <StatusBadge label={statusLabel[s.status]} tone={statusTone[s.status]} />
+        ),
     },
     {
       key: "actions",
@@ -329,6 +382,8 @@ export function SubscriptionsPage() {
       align: "right",
       render: (s) => (
         <div className="flex items-center justify-end gap-1">
+          <IconButton icon={History} label="История платежей" onClick={() => openHistory(s)} />
+          {canEdit && (<>
           <IconButton
             icon={s.invoiceSentAt ? Undo2 : FileCheck2}
             label={s.invoiceSentAt ? "Снять отметку о счёте" : "Счёт отправлен"}
@@ -343,11 +398,20 @@ export function SubscriptionsPage() {
             loading={busyId === s.id}
             disabled={s.status !== "ACTIVE"}
             onClick={() => handleBill(s)}
+            className="hidden xl:inline-flex"
           >
             Продлить
           </Button>
+          <IconButton
+            icon={RefreshCw}
+            label="Продлить"
+            disabled={s.status !== "ACTIVE" || busyId === s.id}
+            onClick={() => handleBill(s)}
+            className="text-accent hover:text-accent xl:hidden"
+          />
           <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(s)} />
           <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(s)} className="hover:text-expense" />
+          </>)}
         </div>
       ),
     },
@@ -359,9 +423,14 @@ export function SubscriptionsPage() {
         title="Подписки на лицензии"
         description="Сумма от клиента → доля вендора списывается расходом → с остатка откладывается резерв на налог → остальное свободно. Кнопка «Продлить» создаёт операции за новый период и подтверждает сумму."
         actions={
-          <Button variant="primary" icon={Plus} onClick={startCreate}>
-            Новая подписка
-          </Button>
+          <>
+            <ExportButton onClick={handleExport} loading={exporting} />
+            {canEdit && (
+              <Button variant="primary" icon={Plus} onClick={startCreate}>
+                Новая подписка
+              </Button>
+            )}
+          </>
         }
       />
 
@@ -421,6 +490,23 @@ export function SubscriptionsPage() {
         </div>
       )}
 
+      <FilterBar>
+        <Field label="Поиск" className="min-w-48 flex-1 sm:max-w-xs">
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-subtle" strokeWidth={1.8} />
+            <Input placeholder="Клиент или продукт" className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+        </Field>
+        <Field label="Статус">
+          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="">Все</option>
+            <option value="ACTIVE">{statusLabel.ACTIVE}</option>
+            <option value="PAUSED">{statusLabel.PAUSED}</option>
+            <option value="CANCELLED">{statusLabel.CANCELLED}</option>
+          </Select>
+        </Field>
+      </FilterBar>
+
       <ListCard>
         <DataTable
           rows={subscriptions}
@@ -449,6 +535,10 @@ export function SubscriptionsPage() {
               }
               actions={
                 <>
+                  <Button size="sm" variant="ghost" icon={History} onClick={() => openHistory(s)}>
+                    История
+                  </Button>
+                  {canEdit && (<>
                   <Button
                     size="sm"
                     variant={s.invoiceSentAt ? "ghost" : "secondary"}
@@ -474,6 +564,7 @@ export function SubscriptionsPage() {
                   <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(s)}>
                     Удалить
                   </Button>
+                  </>)}
                 </>
               }
             />
@@ -481,12 +572,14 @@ export function SubscriptionsPage() {
           empty={
             <EmptyState
               icon={RefreshCw}
-              title="Подписок пока нет"
-              description="Создайте первую — система сразу выставит платёж за начальный период."
+              title={search || statusFilter ? "Ничего не найдено" : "Подписок пока нет"}
+              description={search || statusFilter ? "Попробуйте изменить поиск или фильтр." : "Создайте первую — система сразу выставит платёж за начальный период."}
               action={
-                <Button variant="primary" icon={Plus} onClick={startCreate}>
-                  Новая подписка
-                </Button>
+                canEdit && !search && !statusFilter ? (
+                  <Button variant="primary" icon={Plus} onClick={startCreate}>
+                    Новая подписка
+                  </Button>
+                ) : undefined
               }
             />
           }
@@ -627,6 +720,38 @@ export function SubscriptionsPage() {
             </p>
           )}
         </form>
+      </Modal>
+
+      <Modal
+        open={history !== null}
+        onClose={() => setHistory(null)}
+        title="История платежей"
+        description={history ? `${history.subscription.client?.name} — ${history.subscription.licenseProduct?.name}` : undefined}
+        size="md"
+        footer={
+          <Button variant="secondary" onClick={() => setHistory(null)}>
+            Закрыть
+          </Button>
+        }
+      >
+        {history && history.operations.length > 0 ? (
+          <ul className="flex flex-col divide-y divide-line pb-2">
+            {history.operations.map((o) => (
+              <li key={o.id} className="flex items-center justify-between gap-3 py-2.5">
+                <div className="min-w-0">
+                  <div className="truncate text-sm text-ink">{o.description}</div>
+                  <div className="text-xs text-ink-subtle">{formatDate(o.accrualDate)}</div>
+                </div>
+                <span className={`shrink-0 text-sm font-medium tnum ${o.type === "INCOME" ? "text-income" : "text-expense"}`}>
+                  {o.type === "INCOME" ? "+" : "−"}
+                  {formatMoney(o.amount)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="py-6 text-center text-sm text-ink-subtle">Платежей по подписке пока не было</p>
+        )}
       </Modal>
     </div>
   );

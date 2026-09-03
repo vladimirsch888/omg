@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Inbox, Pencil, Plus, Trash2 } from "lucide-react";
-import { api } from "../api/client";
+import { Inbox, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { api, errorMessage } from "../api/client";
 import { Project, RequestTicket } from "../api/types";
+import { useAuth } from "../context/AuthContext";
 import {
   Badge,
   Button,
@@ -10,6 +11,7 @@ import {
   DataTable,
   EmptyState,
   Field,
+  FilterBar,
   IconButton,
   Input,
   MetaItem,
@@ -50,19 +52,32 @@ const priorityTone: Record<RequestTicket["priority"], BadgeTone> = {
 
 export function RequestsPage() {
   const ui = useUi();
+  const { canEdit } = useAuth();
   const [requests, setRequests] = useState<RequestTicket[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [projectFilter, setProjectFilter] = useState("");
 
   function load() {
-    api.get<RequestTicket[]>("/requests").then((res) => setRequests(res.data));
+    api
+      .get<RequestTicket[]>("/requests", {
+        params: { q: search || undefined, status: statusFilter || undefined, projectId: projectFilter || undefined },
+      })
+      .then((res) => setRequests(res.data));
   }
 
   useEffect(() => {
-    load();
+    const timer = setTimeout(load, search ? 300 : 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, statusFilter, projectFilter]);
+
+  useEffect(() => {
     api.get<Project[]>("/projects").then((res) => setProjects(res.data.flatMap((p) => [p, ...(p.children ?? [])])));
   }, []);
 
@@ -103,16 +118,21 @@ export function RequestsPage() {
       setFormOpen(false);
       setEditingId(null);
       load();
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось сохранить заявку", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось сохранить заявку"), "error");
     } finally {
       setSaving(false);
     }
   }
 
   async function updateStatus(id: string, status: RequestTicket["status"]) {
-    await api.patch(`/requests/${id}`, { status });
-    load();
+    try {
+      await api.patch(`/requests/${id}`, { status });
+      ui.toast(`Заявка: ${statusLabel[status].toLowerCase()}`, "success");
+      load();
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось изменить статус заявки"), "error");
+    }
   }
 
   async function handleDelete(r: RequestTicket) {
@@ -127,22 +147,24 @@ export function RequestsPage() {
       await api.delete(`/requests/${r.id}`);
       ui.toast("Заявка удалена", "success");
       load();
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось удалить заявку", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось удалить заявку"), "error");
     }
   }
 
-  const projectName = (r: RequestTicket) =>
-    r.project?.id ? projects.find((p) => p.id === r.project?.id)?.name ?? "—" : "—";
+  const projectName = (r: RequestTicket) => r.project?.name ?? "—";
 
-  const statusSelect = (r: RequestTicket) => (
-    <SelectCompact value={r.status} onChange={(e) => updateStatus(r.id, e.target.value as RequestTicket["status"])}>
-      <option value="OPEN">{statusLabel.OPEN}</option>
-      <option value="IN_PROGRESS">{statusLabel.IN_PROGRESS}</option>
-      <option value="DONE">{statusLabel.DONE}</option>
-      <option value="CANCELLED">{statusLabel.CANCELLED}</option>
-    </SelectCompact>
-  );
+  const statusSelect = (r: RequestTicket) =>
+    canEdit ? (
+      <SelectCompact value={r.status} onChange={(e) => updateStatus(r.id, e.target.value as RequestTicket["status"])}>
+        <option value="OPEN">{statusLabel.OPEN}</option>
+        <option value="IN_PROGRESS">{statusLabel.IN_PROGRESS}</option>
+        <option value="DONE">{statusLabel.DONE}</option>
+        <option value="CANCELLED">{statusLabel.CANCELLED}</option>
+      </SelectCompact>
+    ) : (
+      <span className="text-ink-muted">{statusLabel[r.status]}</span>
+    );
 
   const columns: Column<RequestTicket>[] = [
     { key: "title", header: "Заявка", render: (r) => <span className="font-medium text-ink">{r.title}</span> },
@@ -159,19 +181,25 @@ export function RequestsPage() {
       align: "right",
       render: (r) => <span className="text-ink-muted">{r.totalHours ?? 0} ч</span>,
     },
-    { key: "status", header: "Статус", render: statusSelect },
-    {
-      key: "actions",
-      header: "",
-      align: "right",
-      render: (r) => (
-        <div className="flex items-center justify-end gap-1">
-          <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(r)} />
-          <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(r)} className="hover:text-expense" />
-        </div>
-      ),
-    },
+    { key: "status", header: "Статус", width: "10rem", render: statusSelect },
+    ...(canEdit
+      ? [
+          {
+            key: "actions",
+            header: "",
+            align: "right" as const,
+            render: (r: RequestTicket) => (
+              <div className="flex items-center justify-end gap-1">
+                <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(r)} />
+                <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(r)} className="hover:text-expense" />
+              </div>
+            ),
+          },
+        ]
+      : []),
   ];
+
+  const hasFilters = Boolean(search || statusFilter || projectFilter);
 
   return (
     <div className="flex flex-col gap-5 sm:gap-6">
@@ -179,11 +207,39 @@ export function RequestsPage() {
         title="Заявки клиентов"
         description="Обращения по проектам: на них списываются часы, а статус показывает, что ещё в работе."
         actions={
-          <Button variant="primary" icon={Plus} onClick={startCreate}>
-            Новая заявка
-          </Button>
+          canEdit && (
+            <Button variant="primary" icon={Plus} onClick={startCreate}>
+              Новая заявка
+            </Button>
+          )
         }
       />
+
+      <FilterBar>
+        <Field label="Поиск" className="min-w-48 flex-1 sm:max-w-xs">
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-subtle" strokeWidth={1.8} />
+            <Input placeholder="Название заявки" className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+        </Field>
+        <Field label="Статус">
+          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="">Все</option>
+            <option value="OPEN">{statusLabel.OPEN}</option>
+            <option value="IN_PROGRESS">{statusLabel.IN_PROGRESS}</option>
+            <option value="DONE">{statusLabel.DONE}</option>
+            <option value="CANCELLED">{statusLabel.CANCELLED}</option>
+          </Select>
+        </Field>
+        <Field label="Проект" className="min-w-44">
+          <Select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
+            <option value="">Все</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </Select>
+        </Field>
+      </FilterBar>
 
       <ListCard>
         <DataTable
@@ -204,12 +260,16 @@ export function RequestsPage() {
               actions={
                 <>
                   <div className="mr-auto">{statusSelect(r)}</div>
-                  <Button size="sm" variant="ghost" icon={Pencil} onClick={() => startEdit(r)}>
-                    Изменить
-                  </Button>
-                  <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(r)}>
-                    Удалить
-                  </Button>
+                  {canEdit && (
+                    <>
+                      <Button size="sm" variant="ghost" icon={Pencil} onClick={() => startEdit(r)}>
+                        Изменить
+                      </Button>
+                      <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(r)}>
+                        Удалить
+                      </Button>
+                    </>
+                  )}
                 </>
               }
             />
@@ -217,12 +277,14 @@ export function RequestsPage() {
           empty={
             <EmptyState
               icon={Inbox}
-              title="Заявок пока нет"
-              description="Заведите заявку по проекту, чтобы списывать на неё часы."
+              title={hasFilters ? "Ничего не найдено" : "Заявок пока нет"}
+              description={hasFilters ? "Попробуйте изменить поиск или фильтры." : "Заведите заявку по проекту, чтобы списывать на неё часы."}
               action={
-                <Button variant="primary" icon={Plus} onClick={startCreate}>
-                  Новая заявка
-                </Button>
+                canEdit && !hasFilters ? (
+                  <Button variant="primary" icon={Plus} onClick={startCreate}>
+                    Новая заявка
+                  </Button>
+                ) : undefined
               }
             />
           }

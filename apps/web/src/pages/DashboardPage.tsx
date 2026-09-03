@@ -1,31 +1,54 @@
 import { lazy, useEffect, useMemo, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, Clock, PiggyBank, TrendingUp, Users } from "lucide-react";
+import { Link } from "react-router-dom";
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, BellRing, Clock, Landmark, PiggyBank, TrendingUp, Users } from "lucide-react";
 import { api } from "../api/client";
-import { CashPosition, CompanySummary, PnLReport } from "../api/types";
-import { Card, Delta, InlineBar, PageHeader, PageSkeleton, Sparkline, StatCard } from "../components/ui";
+import { CashPosition, CompanySummary, PnLReport, Reminder } from "../api/types";
+import { Badge, Card, Delta, InlineBar, PageHeader, PageSkeleton, Sparkline, StatCard, type BadgeTone } from "../components/ui";
 import { LazyChart } from "../components/charts/LazyChart";
-import { formatMoney } from "../utils/format";
+import { formatHours, formatMoney } from "../utils/format";
 
 const TrendChart = lazy(() => import("../components/charts/TrendChart"));
 const CategoryDonut = lazy(() => import("../components/charts/CategoryDonut"));
 
-/** Percentage change between the last two periods of a series. */
-function trendDelta(values: number[]): number | null {
+/**
+ * Percentage change of the running month against the previous one, with the
+ * running month scaled to a full month by the share of days elapsed. A plain
+ * comparison shows "−90 %" on the 3rd of every month, which is noise, not
+ * information.
+ */
+function trendDelta(values: number[], progress: { day: number; daysInMonth: number }): number | null {
   if (values.length < 2) return null;
   const previous = values[values.length - 2];
-  const current = values[values.length - 1];
+  const share = Math.max(progress.day / progress.daysInMonth, 1 / progress.daysInMonth);
+  const currentRunRate = values[values.length - 1] / share;
   if (!previous) return null;
-  return ((current - previous) / Math.abs(previous)) * 100;
+  return ((currentRunRate - previous) / Math.abs(previous)) * 100;
 }
+
+const reminderTone: Record<Reminder["kind"], BadgeTone> = {
+  overdue: "expense",
+  due_soon: "reserve",
+  invoice_stale: "reserve",
+  work_deadline: "accent",
+  request_high: "expense",
+};
+
+const reminderLink: Record<Reminder["entity"], string> = {
+  subscription: "/subscriptions",
+  sale: "/sales",
+  request: "/requests",
+};
 
 export function DashboardPage() {
   const [data, setData] = useState<CompanySummary | null>(null);
   const [cash, setCash] = useState<CashPosition | null>(null);
   const [monthPnl, setMonthPnl] = useState<PnLReport | null>(null);
+  const [reminders, setReminders] = useState<Reminder[] | null>(null);
 
   useEffect(() => {
     api.get<CompanySummary>("/reports/summary").then((res) => setData(res.data));
     api.get<CashPosition>("/reports/cash-position").then((res) => setCash(res.data));
+    api.get<{ reminders: Reminder[] }>("/reminders").then((res) => setReminders(res.data.reminders)).catch(() => setReminders([]));
 
     // Current month only — the donut answers "на что ушли деньги в этом месяце".
     const from = new Date();
@@ -66,6 +89,7 @@ export function DashboardPage() {
   const expenseTotal = expenseSlices.reduce((sum, s) => sum + s.value, 0);
   const topClients = data.topClients.slice(0, 6);
   const maxLtv = Math.max(...topClients.map((c) => Math.abs(c.ltv)), 1);
+  const urgent = (reminders ?? []).filter((r) => r.kind === "overdue" || r.kind === "invoice_stale" || r.kind === "request_high").length;
 
   return (
     <div className="flex flex-col gap-5 sm:gap-6">
@@ -93,23 +117,38 @@ export function DashboardPage() {
                 {formatMoney(cash.spendable)}
               </div>
               <p className="mt-2 max-w-md text-xs leading-relaxed text-ink-subtle">
-                Деньги на счетах за вычетом налогового резерва — то, чем можно распоряжаться прямо сейчас.
+                Деньги на счетах за вычетом ещё не уплаченного налогового резерва — то, чем можно распоряжаться прямо сейчас.
               </p>
             </div>
 
-            <dl className="flex gap-6 sm:gap-8">
+            <dl className="flex flex-wrap gap-6 sm:gap-8">
               <div>
                 <dt className="text-xs text-ink-muted">Всего на счетах</dt>
                 <dd className="mt-1 text-lg font-semibold text-ink tnum">{formatMoney(cash.cumulativeCash)}</dd>
               </div>
               <div>
                 <dt className="text-xs text-ink-muted">Резерв на налог ({cash.taxReservePercent}%)</dt>
-                <dd className="mt-1 text-lg font-semibold text-reserve tnum">
-                  {formatMoney(cash.taxReserveAccrued)}
-                </dd>
+                <dd className="mt-1 text-lg font-semibold text-reserve tnum">{formatMoney(cash.taxReserveOutstanding)}</dd>
+                {cash.taxPaid > 0 && (
+                  <dd className="mt-0.5 text-[11px] text-ink-subtle tnum">
+                    начислено {formatMoney(cash.taxReserveAccrued)}, уплачено {formatMoney(cash.taxPaid)}
+                  </dd>
+                )}
               </div>
             </dl>
           </div>
+
+          {cash.accountBalances.length > 1 && (
+            <dl className="relative mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-line pt-4 text-xs">
+              {cash.accountBalances.map((a) => (
+                <div key={a.accountId ?? "none"} className="inline-flex items-center gap-2">
+                  <Landmark className="size-3.5 text-ink-subtle" strokeWidth={1.75} />
+                  <dt className="text-ink-muted">{a.name}</dt>
+                  <dd className={`font-medium tnum ${a.balance < 0 ? "text-expense" : "text-ink"}`}>{formatMoney(a.balance)}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
         </section>
       )}
 
@@ -120,7 +159,7 @@ export function DashboardPage() {
           tone="income"
           icon={ArrowUpRight}
           chart={<Sparkline data={incomeSeries} tone="income" />}
-          delta={<DeltaOrNull values={incomeSeries} />}
+          delta={<DeltaOrNull values={incomeSeries} progress={data.monthProgress} />}
         />
         <StatCard
           label="Расходы за месяц"
@@ -128,7 +167,7 @@ export function DashboardPage() {
           tone="expense"
           icon={ArrowDownRight}
           chart={<Sparkline data={expenseSeries} tone="expense" />}
-          delta={<DeltaOrNull values={expenseSeries} />}
+          delta={<DeltaOrNull values={expenseSeries} progress={data.monthProgress} />}
         />
         <StatCard
           label="Прибыль за месяц"
@@ -136,15 +175,55 @@ export function DashboardPage() {
           icon={TrendingUp}
           tone="accent"
           chart={<Sparkline data={profitSeries} tone="accent" />}
-          delta={<DeltaOrNull values={profitSeries} />}
+          delta={<DeltaOrNull values={profitSeries} progress={data.monthProgress} />}
         />
         <StatCard
           label="Часы за месяц"
-          value={`${data.hoursThisMonth} ч`}
+          value={formatHours(data.hoursThisMonth)}
           icon={Clock}
           hint="Списано в учёте часов по всем проектам"
         />
       </div>
+
+      <Card
+        title="Требует внимания"
+        action={
+          reminders && reminders.length > 0 ? (
+            <Badge tone={urgent > 0 ? "expense" : "reserve"}>
+              <BellRing className="size-3" strokeWidth={1.9} />
+              {reminders.length}
+            </Badge>
+          ) : undefined
+        }
+      >
+        {reminders === null ? (
+          <p className="py-4 text-center text-sm text-ink-subtle">Проверяю…</p>
+        ) : reminders.length === 0 ? (
+          <p className="py-4 text-center text-sm text-ink-subtle">Просроченных продлений, неоплаченных счетов и срочных заявок нет.</p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-line">
+            {reminders.slice(0, 8).map((r) => (
+              <li key={`${r.entity}-${r.entityId}-${r.kind}`} className="flex items-start gap-3 py-2.5 first:pt-0 last:pb-0">
+                <span className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg ${r.kind === "overdue" || r.kind === "request_high" ? "bg-expense-soft text-expense" : "bg-reserve-soft text-reserve"}`}>
+                  <AlertTriangle className="size-3.5" strokeWidth={1.9} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <Link to={reminderLink[r.entity]} className="-my-1 inline-flex min-h-9 items-center py-1 text-sm font-medium text-ink transition-colors hover:text-accent">
+                    {r.title}
+                  </Link>
+                  <div className="mt-0.5 text-xs text-ink-muted">{r.detail}</div>
+                </div>
+                <Badge tone={reminderTone[r.kind]}>
+                  {r.days < 0 ? `${-r.days} дн.` : r.days === 0 ? "сегодня" : `${r.days} дн.`}
+                </Badge>
+              </li>
+            ))}
+            {reminders.length > 8 && (
+              <li className="pt-2.5 text-xs text-ink-subtle">…и ещё {reminders.length - 8}</li>
+            )}
+          </ul>
+        )}
+      </Card>
 
       <Card title="Прибыль и денежный поток за 12 месяцев">
         <LazyChart>
@@ -169,7 +248,9 @@ export function DashboardPage() {
               {topClients.map((c) => (
                 <li key={c.clientId} className="flex flex-col gap-1.5">
                   <div className="flex items-baseline justify-between gap-3">
-                    <span className="truncate text-sm text-ink">{c.clientName}</span>
+                    <Link to={`/clients/${c.clientId}`} className="-my-1.5 inline-flex min-h-9 min-w-0 items-center truncate py-1.5 text-sm text-ink transition-colors hover:text-accent">
+                      {c.clientName}
+                    </Link>
                     <span className="shrink-0 text-sm font-medium text-ink tnum">{formatMoney(c.ltv)}</span>
                   </div>
                   <InlineBar value={c.ltv} max={maxLtv} tone={c.ltv >= 0 ? "accent" : "expense"} />
@@ -192,8 +273,8 @@ export function DashboardPage() {
   );
 }
 
-function DeltaOrNull({ values }: { values: number[] }) {
-  const delta = trendDelta(values);
+function DeltaOrNull({ values, progress }: { values: number[]; progress: { day: number; daysInMonth: number } }) {
+  const delta = trendDelta(values, progress);
   if (delta === null) return null;
-  return <Delta value={delta} />;
+  return <Delta value={delta} suffix="к прошлому месяцу, по темпу" />;
 }

@@ -1,4 +1,5 @@
 import { prisma } from "../../prisma";
+import type { Prisma } from "../../generated/prisma/client";
 
 // Default reference books created for every new organization.
 // Users can rename, deactivate or extend any of these values from the admin
@@ -8,7 +9,7 @@ const DEFAULT_DICTIONARIES: Array<{
   name: string;
   description: string;
   isSystem?: boolean;
-  values: Array<{ code: string; name: string; color?: string }>;
+  values: Array<{ code: string; name: string; color?: string; systemKey?: string }>;
 }> = [
   {
     code: "operation_category",
@@ -21,7 +22,9 @@ const DEFAULT_DICTIONARIES: Array<{
       { code: "client_work", name: "Работы по клиенту", color: "#16a34a" },
       { code: "client_support", name: "Сопровождение клиента", color: "#059669" },
       { code: "salary", name: "Зарплата / подрядчики", color: "#dc2626" },
-      { code: "license_cost", name: "Закупка лицензий у поставщика", color: "#ea580c" },
+      // systemKey: the code looks this category up by it (vendor payouts),
+      // so the code and the name stay freely editable.
+      { code: "license_cost", name: "Закупка лицензий у поставщика", color: "#ea580c", systemKey: "vendor_cost" },
       { code: "hosting_software", name: "Хостинг / ПО / сервисы", color: "#9333ea" },
       { code: "marketing", name: "Маркетинг и реклама", color: "#db2777" },
       { code: "office_admin", name: "Офис / администрирование", color: "#64748b" },
@@ -53,6 +56,16 @@ const DEFAULT_DICTIONARIES: Array<{
     ],
   },
   {
+    code: "account",
+    name: "Счета и кассы",
+    description: "Расчётные счета, карты и кассы, через которые проходят деньги",
+    values: [
+      { code: "main_account", name: "Основной расчётный счёт" },
+      { code: "card", name: "Карта" },
+      { code: "cash", name: "Касса" },
+    ],
+  },
+  {
     code: "request_type",
     name: "Типы заявок",
     description: "Тип заявки от клиента",
@@ -66,9 +79,13 @@ const DEFAULT_DICTIONARIES: Array<{
   },
 ];
 
-export async function seedDefaultDictionaries(organizationId: string) {
+/** `db` lets the caller run this inside its own transaction (registration). */
+export async function seedDefaultDictionaries(
+  organizationId: string,
+  db: Prisma.TransactionClient | typeof prisma = prisma
+) {
   for (const dict of DEFAULT_DICTIONARIES) {
-    const type = await prisma.dictionaryType.create({
+    const type = await db.dictionaryType.create({
       data: {
         organizationId,
         code: dict.code,
@@ -77,7 +94,7 @@ export async function seedDefaultDictionaries(organizationId: string) {
         isSystem: true,
       },
     });
-    await prisma.dictionaryValue.createMany({
+    await db.dictionaryValue.createMany({
       data: dict.values.map((v, index) => ({
         dictionaryTypeId: type.id,
         organizationId,
@@ -85,6 +102,7 @@ export async function seedDefaultDictionaries(organizationId: string) {
         name: v.name,
         color: v.color,
         sortOrder: index,
+        systemKey: v.systemKey ?? null,
       })),
     });
   }

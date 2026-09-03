@@ -1,22 +1,59 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { prisma } from "../../prisma";
-import { requireAuth } from "../../middleware/auth.middleware";
 import { AppError } from "../../utils/errors";
+import { endOfDay, parseDateParam } from "../../utils/dates";
+import { assertClient, assertLicenseProduct, assertProject } from "../../utils/ownership";
+import { audit } from "../audit/audit.service";
 import { recordSale, updateSale } from "./sales.service";
 import type { AppEnv } from "../../types/hono";
 
 export const salesRouter = new Hono<AppEnv>();
-salesRouter.use(requireAuth);
+
+const dateParam = z
+  .string()
+  .optional()
+  .transform((v, ctx) => {
+    const d = parseDateParam(v);
+    if (d === null) {
+      ctx.addIssue({ code: "custom", message: "Некорректная дата в фильтре" });
+      return undefined;
+    }
+    return d;
+  });
+
+export const salesQuerySchema = z.object({
+  clientId: z.string().uuid().optional(),
+  licenseProductId: z.string().uuid().optional(),
+  q: z.string().trim().max(200).optional(),
+  from: dateParam,
+  to: dateParam,
+});
+
+export function buildSalesWhere(organizationId: string, q: z.infer<typeof salesQuerySchema>) {
+  return {
+    organizationId,
+    ...(q.clientId ? { clientId: q.clientId } : {}),
+    ...(q.licenseProductId ? { licenseProductId: q.licenseProductId } : {}),
+    ...(q.q
+      ? {
+          OR: [
+            { client: { name: { contains: q.q, mode: "insensitive" as const } } },
+            { licenseProduct: { name: { contains: q.q, mode: "insensitive" as const } } },
+          ],
+        }
+      : {}),
+    ...(q.from || q.to
+      ? { saleDate: { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: endOfDay(q.to) } : {}) } }
+      : {}),
+  };
+}
 
 salesRouter.get("/", async (c) => {
   const auth = c.get("auth");
-  const clientId = c.req.query("clientId");
+  const q = salesQuerySchema.parse(c.req.query());
   const sales = await prisma.sale.findMany({
-    where: {
-      organizationId: auth.organizationId,
-      ...(clientId ? { clientId } : {}),
-    },
+    where: buildSalesWhere(auth.organizationId, q),
     include: {
       client: { select: { id: true, name: true } },
       project: { select: { id: true, name: true } },
@@ -58,15 +95,12 @@ salesRouter.post("/", async (c) => {
   const organizationId = auth.organizationId;
 
   const [client, product] = await Promise.all([
-    prisma.client.findFirst({ where: { id: body.clientId, organizationId } }),
-    prisma.licenseProduct.findFirst({ where: { id: body.licenseProductId, organizationId } }),
+    assertClient(organizationId, body.clientId),
+    assertLicenseProduct(organizationId, body.licenseProductId),
   ]);
-  if (!client) throw new AppError(404, "Клиент не найден");
-  if (!product) throw new AppError(404, "Продукт не найден");
 
   if (body.projectId) {
-    const project = await prisma.project.findFirst({ where: { id: body.projectId, organizationId } });
-    if (!project) throw new AppError(404, "Проект не найден");
+    const project = await assertProject(organizationId, body.projectId);
     if (project.clientId !== body.clientId) {
       throw new AppError(400, "Проект принадлежит другому клиенту");
     }
@@ -81,7 +115,8 @@ salesRouter.post("/", async (c) => {
     licenseProductId: body.licenseProductId,
     amount: body.amount,
     saleDate,
-    workEndDate: body.workEndDate ? new Date(body.workEndDate) : null,
+    // A work end date only means something for a one-off job.
+    workEndDate: product.type === "WORK" && body.workEndDate ? new Date(body.workEndDate) : null,
     vendorSharePercent: Number(product.defaultVendorSharePercent),
     taxable: product.defaultTaxable,
     categoryValueId: product.categoryValueId,
@@ -90,6 +125,7 @@ salesRouter.post("/", async (c) => {
     userId: auth.userId,
   });
 
+  audit({ organizationId, userId: auth.userId, action: "create", entity: "sale", entityId: result.sale.id, summary: `Продажа: ${client.name} — ${product.name}, ${body.amount} ₽` });
   return c.json(result, 201);
 });
 
@@ -115,15 +151,12 @@ salesRouter.patch("/:id", async (c) => {
   const licenseProductId = body.licenseProductId ?? sale.licenseProductId;
 
   const [client, product] = await Promise.all([
-    prisma.client.findFirst({ where: { id: clientId, organizationId } }),
-    prisma.licenseProduct.findFirst({ where: { id: licenseProductId, organizationId } }),
+    assertClient(organizationId, clientId),
+    assertLicenseProduct(organizationId, licenseProductId),
   ]);
-  if (!client) throw new AppError(404, "Клиент не найден");
-  if (!product) throw new AppError(404, "Продукт не найден");
 
   if (projectId) {
-    const project = await prisma.project.findFirst({ where: { id: projectId, organizationId } });
-    if (!project) throw new AppError(404, "Проект не найден");
+    const project = await assertProject(organizationId, projectId);
     if (project.clientId !== clientId) {
       throw new AppError(400, "Проект принадлежит другому клиенту");
     }
@@ -139,7 +172,8 @@ salesRouter.patch("/:id", async (c) => {
 
   const amount = body.amount ?? Number(sale.amount);
   const saleDate = body.saleDate ? new Date(body.saleDate) : sale.saleDate;
-  const workEndDate = body.workEndDate !== undefined ? (body.workEndDate ? new Date(body.workEndDate) : null) : sale.workEndDate;
+  const requestedWorkEndDate = body.workEndDate !== undefined ? (body.workEndDate ? new Date(body.workEndDate) : null) : sale.workEndDate;
+  const workEndDate = product.type === "WORK" ? requestedWorkEndDate : null;
 
   const result = await updateSale({
     organizationId,
@@ -158,6 +192,7 @@ salesRouter.patch("/:id", async (c) => {
     userId: auth.userId,
   });
 
+  audit({ organizationId, userId: auth.userId, action: "update", entity: "sale", entityId: sale.id, summary: `Изменена продажа: ${client.name} — ${product.name}, ${amount} ₽`, details: body });
   return c.json(result);
 });
 
@@ -168,5 +203,6 @@ salesRouter.delete("/:id", async (c) => {
   });
   if (!sale) throw new AppError(404, "Продажа не найдена");
   await prisma.sale.delete({ where: { id: sale.id } });
+  audit({ organizationId: auth.organizationId, userId: auth.userId, action: "delete", entity: "sale", entityId: sale.id, summary: `Удалена продажа на ${Number(sale.amount)} ₽` });
   return c.body(null, 204);
 });

@@ -1,8 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronRight, Pencil, Plus, Trash2, Users } from "lucide-react";
-import { api } from "../api/client";
+import { ChevronRight, Pencil, Plus, Search, Trash2, Users } from "lucide-react";
+import { api, errorMessage } from "../api/client";
 import { Client } from "../api/types";
+import { useAuth } from "../context/AuthContext";
 import {
   Button,
   ListCard,
@@ -10,6 +11,7 @@ import {
   DataTable,
   EmptyState,
   Field,
+  FilterBar,
   IconButton,
   Input,
   MetaItem,
@@ -45,19 +47,36 @@ const statusTone: Record<Client["status"], BadgeTone> = {
   CHURNED: "neutral",
 };
 
+interface DeleteImpact {
+  projects: number;
+  subscriptions: number;
+  sales: number;
+  operations: number;
+}
+
 export function ClientsPage() {
   const ui = useUi();
+  const { canEdit } = useAuth();
   const [clients, setClients] = useState<Client[]>([]);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
 
   function load() {
-    api.get<Client[]>("/clients").then((res) => setClients(res.data));
+    api
+      .get<Client[]>("/clients", { params: { q: search || undefined, status: status || undefined } })
+      .then((res) => setClients(res.data));
   }
 
-  useEffect(load, []);
+  // Debounced search so the list doesn't refetch on every keystroke.
+  useEffect(() => {
+    const timer = setTimeout(load, search ? 300 : 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, status]);
 
   function startCreate() {
     setForm(emptyForm);
@@ -104,17 +123,40 @@ export function ClientsPage() {
       setFormOpen(false);
       setEditingId(null);
       load();
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось сохранить клиента", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось сохранить клиента"), "error");
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDelete(c: Client) {
+    let impact: DeleteImpact | null = null;
+    try {
+      impact = (await api.get<DeleteImpact>(`/clients/${c.id}/delete-impact`)).data;
+    } catch {
+      // The confirm below still works without the counts.
+    }
+    const parts: string[] = [];
+    if (impact) {
+      if (impact.projects) parts.push(`проектов: ${impact.projects}`);
+      if (impact.subscriptions) parts.push(`подписок: ${impact.subscriptions}`);
+      if (impact.sales) parts.push(`продаж: ${impact.sales}`);
+    }
     const confirmed = await ui.confirm({
       title: `Удалить клиента «${c.name}»?`,
-      message: "Все его проекты, заявки, часы и подписки будут удалены безвозвратно.",
+      message: (
+        <>
+          Безвозвратно удалятся его проекты с заявками и часами, подписки и продажи
+          {parts.length > 0 && <> ({parts.join(", ")})</>}.
+          {impact && impact.operations > 0 && (
+            <>
+              {" "}Проведённые операции ({impact.operations}) останутся в разделе «Операции», но потеряют привязку к клиенту.
+            </>
+          )}{" "}
+          Если хотите сохранить историю — поставьте статус «Ушёл».
+        </>
+      ),
       confirmLabel: "Удалить",
       danger: true,
     });
@@ -123,8 +165,8 @@ export function ClientsPage() {
       await api.delete(`/clients/${c.id}`);
       ui.toast("Клиент удалён", "success");
       load();
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось удалить клиента", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось удалить клиента"), "error");
     }
   }
 
@@ -152,17 +194,21 @@ export function ClientsPage() {
       align: "right",
       render: (c) => <span className="text-ink-muted">{c.projectsCount ?? 0}</span>,
     },
-    {
-      key: "actions",
-      header: "",
-      align: "right",
-      render: (c) => (
-        <div className="flex items-center justify-end gap-1">
-          <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(c)} />
-          <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(c)} className="hover:text-expense" />
-        </div>
-      ),
-    },
+    ...(canEdit
+      ? [
+          {
+            key: "actions",
+            header: "",
+            align: "right" as const,
+            render: (c: Client) => (
+              <div className="flex items-center justify-end gap-1">
+                <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(c)} />
+                <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(c)} className="hover:text-expense" />
+              </div>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -171,11 +217,30 @@ export function ClientsPage() {
         title="Клиенты"
         description="Карточка клиента собирает всю выручку по нему: проекты, разовые продажи и подписки."
         actions={
-          <Button variant="primary" icon={Plus} onClick={startCreate}>
-            Новый клиент
-          </Button>
+          canEdit && (
+            <Button variant="primary" icon={Plus} onClick={startCreate}>
+              Новый клиент
+            </Button>
+          )
         }
       />
+
+      <FilterBar>
+        <Field label="Поиск" className="min-w-52 flex-1 sm:max-w-xs">
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-subtle" strokeWidth={1.8} />
+            <Input placeholder="Название, ИНН, контакт" className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+        </Field>
+        <Field label="Статус">
+          <Select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">Все</option>
+            <option value="ACTIVE">{statusLabel.ACTIVE}</option>
+            <option value="PAUSED">{statusLabel.PAUSED}</option>
+            <option value="CHURNED">{statusLabel.CHURNED}</option>
+          </Select>
+        </Field>
+      </FilterBar>
 
       <ListCard>
         <DataTable
@@ -185,7 +250,7 @@ export function ClientsPage() {
           renderCard={(c) => (
             <RowCard
               title={
-                <Link to={`/clients/${c.id}`} className="inline-flex items-center gap-1 text-ink">
+                <Link to={`/clients/${c.id}`} className="-my-1 inline-flex min-h-11 items-center gap-1 py-1 text-ink">
                   {c.name}
                   <ChevronRight className="size-3.5 text-ink-subtle" />
                 </Link>
@@ -199,26 +264,30 @@ export function ClientsPage() {
                 </>
               }
               actions={
-                <>
-                  <Button size="sm" variant="ghost" icon={Pencil} onClick={() => startEdit(c)}>
-                    Изменить
-                  </Button>
-                  <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(c)}>
-                    Удалить
-                  </Button>
-                </>
+                canEdit && (
+                  <>
+                    <Button size="sm" variant="ghost" icon={Pencil} onClick={() => startEdit(c)}>
+                      Изменить
+                    </Button>
+                    <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(c)}>
+                      Удалить
+                    </Button>
+                  </>
+                )
               }
             />
           )}
           empty={
             <EmptyState
               icon={Users}
-              title="Клиентов пока нет"
-              description="Добавьте первого клиента, чтобы вести по нему проекты, продажи и подписки."
+              title={search || status ? "Ничего не найдено" : "Клиентов пока нет"}
+              description={search || status ? "Попробуйте изменить поиск или фильтр." : "Добавьте первого клиента, чтобы вести по нему проекты, продажи и подписки."}
               action={
-                <Button variant="primary" icon={Plus} onClick={startCreate}>
-                  Новый клиент
-                </Button>
+                canEdit && !search && !status ? (
+                  <Button variant="primary" icon={Plus} onClick={startCreate}>
+                    Новый клиент
+                  </Button>
+                ) : undefined
               }
             />
           }
@@ -249,7 +318,7 @@ export function ClientsPage() {
             <Input value={form.legalName} onChange={(e) => setForm({ ...form, legalName: e.target.value })} />
           </Field>
           <Field label="ИНН">
-            <Input inputMode="numeric" value={form.inn} onChange={(e) => setForm({ ...form, inn: e.target.value })} />
+            <Input inputMode="numeric" pattern="\d*" value={form.inn} onChange={(e) => setForm({ ...form, inn: e.target.value.replace(/\D/g, "") })} />
           </Field>
           <Field label="Контактное лицо">
             <Input value={form.contactPerson} onChange={(e) => setForm({ ...form, contactPerson: e.target.value })} />

@@ -8,6 +8,13 @@
 # Run ONCE, as root, on a brand new VPS:
 #   bash bootstrap-vps.sh
 #
+# HTTPS: set DOMAIN (and optionally STAGING_DOMAIN, default staging.$DOMAIN)
+# to hostnames whose DNS already points at this server, and the script gets
+# Let's Encrypt certificates and serves both environments over TLS:
+#   DOMAIN=crm.example.ru EMAIL=admin@example.ru bash bootstrap-vps.sh
+# Without DOMAIN it falls back to plain HTTP on the IP (port 80 / 8080) —
+# fine for a first look, not for real use: passwords travel unencrypted.
+#
 # Safe-ish to re-run: it skips steps that already succeeded (DB
 # users/databases, .env files, cloned repos) instead of clobbering them.
 # The GitHub Actions SSH key is the one exception — it is regenerated
@@ -20,6 +27,10 @@ GITHUB_REPO="git@github.com:vladimirsch888/omg.git"
 APP_USER="deploy"
 STAGING_DIR="/opt/revenue-saas-staging"
 PROD_DIR="/opt/revenue-saas-prod"
+DOMAIN="${DOMAIN:-}"
+STAGING_DOMAIN="${STAGING_DOMAIN:-${DOMAIN:+staging.$DOMAIN}}"
+EMAIL="${EMAIL:-}"
+TIMEZONE="${TIMEZONE:-Europe/Moscow}"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Запустите скрипт от root (например: sudo bash bootstrap-vps.sh)" >&2
@@ -44,7 +55,11 @@ if ! command -v node >/dev/null || [ "$(node -v | cut -d. -f1 | tr -d v)" -lt 24
   curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
   apt-get install -y nodejs
 fi
-apt-get install -y git nginx postgresql postgresql-contrib openssl curl ufw
+apt-get install -y git nginx postgresql postgresql-contrib openssl curl ufw apache2-utils
+if [ -n "$DOMAIN" ]; then
+  apt-get install -y certbot python3-certbot-nginx
+fi
+timedatectl set-timezone "$TIMEZONE" || true
 node -v
 
 echo "== [3/10] Пользователь приложения =="
@@ -137,11 +152,28 @@ DATABASE_URL="postgresql://${role}:${password}@localhost:5432/${dbname}?schema=p
 JWT_SECRET="$(openssl rand -base64 48)"
 PORT=${port}
 CORS_ORIGIN="${cors}"
+TZ="${TIMEZONE}"
+TAX_RESERVE_PERCENT=7
+# Саморегистрация закрыта: первый владелец регистрируется, пока база пуста,
+# остальных заводит владелец в разделе «Пользователи».
+ALLOW_REGISTRATION=false
+# Дайджест напоминаний в Telegram (необязательно)
+TELEGRAM_BOT_TOKEN=""
+TELEGRAM_CHAT_ID=""
+TELEGRAM_DIGEST_HOUR=9
 EOF
+  chmod 600 "$env_file"
 }
 
-setup_db_and_env "$STAGING_DIR" revenue_staging revenue_saas_staging 4001 "http://${PUBLIC_IP}:8080"
-setup_db_and_env "$PROD_DIR" revenue_prod revenue_saas_prod 4000 "http://${PUBLIC_IP}"
+if [ -n "$DOMAIN" ]; then
+  PROD_ORIGIN="https://${DOMAIN}"
+  STAGING_ORIGIN="https://${STAGING_DOMAIN}"
+else
+  PROD_ORIGIN="http://${PUBLIC_IP}"
+  STAGING_ORIGIN="http://${PUBLIC_IP}:8080"
+fi
+setup_db_and_env "$STAGING_DIR" revenue_staging revenue_saas_staging 4001 "$STAGING_ORIGIN"
+setup_db_and_env "$PROD_DIR" revenue_prod revenue_saas_prod 4000 "$PROD_ORIGIN"
 
 echo "== [8/10] Установка зависимостей, сборка, миграции =="
 for DIR in "$STAGING_DIR" "$PROD_DIR"; do
@@ -161,10 +193,12 @@ After=network.target postgresql.service
 Type=simple
 WorkingDirectory=${STAGING_DIR}/apps/api
 EnvironmentFile=${STAGING_DIR}/apps/api/.env
+Environment=NODE_ENV=production
 ExecStart=/usr/bin/node dist/server.js
-Restart=on-failure
+Restart=always
+RestartSec=3
 User=${APP_USER}
-MemoryMax=200M
+MemoryMax=256M
 
 [Install]
 WantedBy=multi-user.target
@@ -179,10 +213,12 @@ After=network.target postgresql.service
 Type=simple
 WorkingDirectory=${PROD_DIR}/apps/api
 EnvironmentFile=${PROD_DIR}/apps/api/.env
+Environment=NODE_ENV=production
 ExecStart=/usr/bin/node dist/server.js
-Restart=on-failure
+Restart=always
+RestartSec=3
 User=${APP_USER}
-MemoryMax=200M
+MemoryMax=256M
 
 [Install]
 WantedBy=multi-user.target
@@ -200,56 +236,119 @@ EOF
 chmod 440 /etc/sudoers.d/deploy-restart
 
 echo "== [10/10] Nginx =="
-cat > /etc/nginx/sites-available/revenue-saas <<EOF
-server {
-    listen 80 default_server;
-    server_name _;
 
-    root ${PROD_DIR}/apps/web/dist;
-    index index.html;
+# Staging is a copy of production data-wise nothing, but it still runs the
+# same login screen — put HTTP basic auth in front so it isn't a public
+# playground. The password is printed at the end.
+STAGING_HTPASSWD="/etc/nginx/.htpasswd-staging"
+if [ ! -f "$STAGING_HTPASSWD" ]; then
+  STAGING_BASIC_PASS="$(openssl rand -hex 8)"
+  htpasswd -cb "$STAGING_HTPASSWD" staging "$STAGING_BASIC_PASS"
+  echo "$STAGING_BASIC_PASS" > /root/.staging-basic-auth
+  chmod 600 /root/.staging-basic-auth
+else
+  STAGING_BASIC_PASS="$(cat /root/.staging-basic-auth 2>/dev/null || echo '(см. /etc/nginx/.htpasswd-staging — пароль задан ранее)')"
+fi
+
+# Shared snippets: security headers, the SPA fallback and cache rules.
+# index.html must never be cached (a stale one references deleted bundles
+# after a deploy → white screen), hashed assets can be cached forever.
+cat > /etc/nginx/snippets/revenue-common.conf <<EOF
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+    client_max_body_size 2m;
 
     gzip on;
-    gzip_types text/css application/javascript application/json;
+    gzip_types text/css application/javascript application/json image/svg+xml;
 
     location /api/ {
-        proxy_pass http://127.0.0.1:4000;
+        proxy_pass http://127.0.0.1:__API_PORT__;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 60s;
+    }
+
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files \$uri =404;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
     }
 
     location / {
         try_files \$uri /index.html;
     }
-}
+EOF
 
+write_vhost() {
+  local file="$1" listen="$2" server_name="$3" root="$4" api_port="$5" extra="$6"
+  cat > "$file" <<EOF
 server {
-    listen 8080;
-    server_name _;
+    listen ${listen};
+    server_name ${server_name};
 
-    root ${STAGING_DIR}/apps/web/dist;
+    root ${root};
     index index.html;
-
-    gzip on;
-    gzip_types text/css application/javascript application/json;
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:4001;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-    }
-
-    location / {
-        try_files \$uri /index.html;
-    }
+${extra}
+$(sed "s/__API_PORT__/${api_port}/" /etc/nginx/snippets/revenue-common.conf)
 }
 EOF
-ln -sf /etc/nginx/sites-available/revenue-saas /etc/nginx/sites-enabled/revenue-saas
-rm -f /etc/nginx/sites-enabled/default
-nginx -t && systemctl restart nginx
+}
+
+STAGING_AUTH="    auth_basic \"Staging\";
+    auth_basic_user_file ${STAGING_HTPASSWD};"
+
+if [ -n "$DOMAIN" ]; then
+  write_vhost /etc/nginx/sites-available/revenue-prod "80" "$DOMAIN" "${PROD_DIR}/apps/web/dist" 4000 ""
+  write_vhost /etc/nginx/sites-available/revenue-staging "80" "$STAGING_DOMAIN" "${STAGING_DIR}/apps/web/dist" 4001 "$STAGING_AUTH"
+  ln -sf /etc/nginx/sites-available/revenue-prod /etc/nginx/sites-enabled/revenue-prod
+  ln -sf /etc/nginx/sites-available/revenue-staging /etc/nginx/sites-enabled/revenue-staging
+  rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-enabled/revenue-saas
+  nginx -t && systemctl restart nginx
+  # certbot rewrites both vhosts with listen 443 + the certificate and adds a
+  # permanent http→https redirect.
+  certbot --nginx --non-interactive --agree-tos --redirect \
+    ${EMAIL:+--email "$EMAIL"} ${EMAIL:---register-unsafely-without-email} \
+    -d "$DOMAIN" -d "$STAGING_DOMAIN"
+  # HSTS only once TLS really works.
+  for f in /etc/nginx/sites-available/revenue-prod /etc/nginx/sites-available/revenue-staging; do
+    grep -q "Strict-Transport-Security" "$f" || sed -i '0,/listen 443 ssl/s//listen 443 ssl;\n    add_header Strict-Transport-Security "max-age=31536000" always/' "$f"
+  done
+  nginx -t && systemctl reload nginx
+else
+  write_vhost /etc/nginx/sites-available/revenue-prod "80 default_server" "_" "${PROD_DIR}/apps/web/dist" 4000 ""
+  write_vhost /etc/nginx/sites-available/revenue-staging "8080" "_" "${STAGING_DIR}/apps/web/dist" 4001 "$STAGING_AUTH"
+  ln -sf /etc/nginx/sites-available/revenue-prod /etc/nginx/sites-enabled/revenue-prod
+  ln -sf /etc/nginx/sites-available/revenue-staging /etc/nginx/sites-enabled/revenue-staging
+  rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-enabled/revenue-saas
+  nginx -t && systemctl restart nginx
+fi
+
+echo "== Бэкапы и самопроверка =="
+install -m 755 "${PROD_DIR}/deploy/backup.sh" /usr/local/bin/revenue-backup
+install -m 755 "${PROD_DIR}/deploy/healthcheck.sh" /usr/local/bin/revenue-healthcheck
+cat > /etc/cron.d/revenue-saas <<EOF
+# Nightly PostgreSQL dumps (kept 14 days) and a 5-minute API self-check.
+0 3 * * * root /usr/local/bin/revenue-backup >> /var/log/revenue-backup.log 2>&1
+*/5 * * * * root /usr/local/bin/revenue-healthcheck
+EOF
+chmod 644 /etc/cron.d/revenue-saas
+/usr/local/bin/revenue-backup || echo "первый бэкап не удался — проверьте /var/log/revenue-backup.log"
 
 ufw allow OpenSSH || true
 ufw allow 80/tcp || true
-ufw allow 8080/tcp || true
+if [ -n "$DOMAIN" ]; then
+  ufw allow 443/tcp || true
+else
+  ufw allow 8080/tcp || true
+fi
 yes | ufw enable || true
 
 echo "== Ключ для GitHub Actions (доступ CI к серверу) =="
@@ -271,8 +370,16 @@ cat "$CI_KEY"
 echo "----------------------------------------------------------------------"
 rm -f "$CI_KEY" "${CI_KEY}.pub"
 echo ""
-echo "Production:  http://${PUBLIC_IP}/"
-echo "Staging:     http://${PUBLIC_IP}:8080/"
+echo "Production:  ${PROD_ORIGIN}/"
+echo "Staging:     ${STAGING_ORIGIN}/  (basic auth: staging / ${STAGING_BASIC_PASS})"
+echo ""
+echo "Бэкапы: /opt/backups/revenue-saas (ежедневно в 03:00, хранятся 14 дней)."
+echo "Самопроверка API: каждые 5 минут, лог в /var/log/revenue-healthcheck.log."
+if [ -z "$DOMAIN" ]; then
+  echo ""
+  echo "ВНИМАНИЕ: сервер работает по HTTP. Для HTTPS направьте домен на этот IP и"
+  echo "перезапустите скрипт: DOMAIN=ваш.домен EMAIL=почта bash bootstrap-vps.sh"
+fi
 echo ""
 echo "После добавления секретов ничего больше на сервере делать не нужно —"
 echo "дальнейшие обновления приходят через git push в staging/main."

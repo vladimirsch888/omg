@@ -6,7 +6,7 @@ export interface Column<T> {
   render: (row: T) => ReactNode;
   align?: "left" | "right";
   /** Drop this column below the given breakpoint (desktop table only). */
-  hideBelow?: "md" | "lg";
+  hideBelow?: "md" | "lg" | "xl";
   width?: string;
   /** Keep on one line. Right-aligned (numeric) columns do this anyway. */
   nowrap?: boolean;
@@ -37,7 +37,13 @@ export function DataTable<T>({
   if (rows.length === 0 && empty) return <>{empty}</>;
 
   const hideClass = (c: Column<T>) =>
-    c.hideBelow === "md" ? "hidden md:table-cell" : c.hideBelow === "lg" ? "hidden lg:table-cell" : "";
+    c.hideBelow === "md"
+      ? "hidden md:table-cell"
+      : c.hideBelow === "lg"
+        ? "hidden lg:table-cell"
+        : c.hideBelow === "xl"
+          ? "hidden xl:table-cell"
+          : "";
 
   return (
     <>
@@ -48,8 +54,9 @@ export function DataTable<T>({
         ))}
       </ul>
 
-      {/* sm and up: table */}
-      <div className="hidden sm:block">
+      {/* sm and up: table. overflow-x-auto is a safety net for narrow laptops —
+          columns are tuned so it normally never engages. */}
+      <div className="hidden overflow-x-auto sm:block">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-line">

@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
-import { CalendarCheck, Pencil, Plus, Receipt, Trash2 } from "lucide-react";
-import { api } from "../api/client";
+import { CalendarCheck, Copy, Pencil, Plus, Receipt, Search, Trash2 } from "lucide-react";
+import { api, errorMessage } from "../api/client";
 import { Client, LicenseProduct, Project, Sale } from "../api/types";
+import { useAuth } from "../context/AuthContext";
 import {
   Badge,
   Button,
@@ -9,7 +10,9 @@ import {
   Column,
   DataTable,
   EmptyState,
+  ExportButton,
   Field,
+  FilterBar,
   IconButton,
   Input,
   MetaItem,
@@ -19,48 +22,99 @@ import {
   Select,
   useUi,
 } from "../components/ui";
-import { addWorkingDays, formatDate, formatMoney, toDateInputValue } from "../utils/format";
+import {
+  addWorkingDays,
+  dateInputToIso,
+  downloadFile,
+  formatDate,
+  formatMoney,
+  toDateInputValue,
+  todayInput,
+  toLocalDateInput,
+} from "../utils/format";
 
-const emptyForm = {
-  clientId: "",
-  projectId: "",
-  licenseProductId: "",
-  amount: "",
-  saleDate: new Date().toISOString().slice(0, 10),
-  workDays: "",
-  workEndDate: "",
-};
+interface SaleForm {
+  clientId: string;
+  projectId: string;
+  licenseProductId: string;
+  amount: string;
+  saleDate: string;
+  workDays: string;
+  workEndDate: string;
+}
+
+function emptyForm(): SaleForm {
+  return {
+    clientId: "",
+    projectId: "",
+    licenseProductId: "",
+    amount: "",
+    saleDate: todayInput(),
+    workDays: "",
+    workEndDate: "",
+  };
+}
 
 function computeWorkEndDate(saleDate: string, workDays: string): string {
   const days = Number(workDays);
   if (!saleDate || !days || days <= 0) return "";
-  return addWorkingDays(new Date(saleDate), days).toISOString().slice(0, 10);
+  const [y, m, d] = saleDate.split("-").map(Number);
+  return toLocalDateInput(addWorkingDays(new Date(y, m - 1, d), days));
 }
 
 export function SalesPage() {
   const ui = useUi();
+  const { canEdit } = useAuth();
   const [sales, setSales] = useState<Sale[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [products, setProducts] = useState<LicenseProduct[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState<SaleForm>(emptyForm);
+  const [search, setSearch] = useState("");
+  const [clientFilter, setClientFilter] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const filterParams = { q: search || undefined, clientId: clientFilter || undefined, from: from || undefined, to: to || undefined };
 
   function load() {
-    api.get<Sale[]>("/sales").then((res) => setSales(res.data));
+    api.get<Sale[]>("/sales", { params: filterParams }).then((res) => setSales(res.data));
   }
 
   useEffect(() => {
-    load();
+    const timer = setTimeout(load, search ? 300 : 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, clientFilter, from, to]);
+
+  useEffect(() => {
     api.get<Client[]>("/clients").then((res) => setClients(res.data));
-    api.get<LicenseProduct[]>("/license-products").then((res) => setProducts(res.data));
+    // Inactive products are loaded too, so a sale made on a product that was
+    // switched off since can still be opened and saved — the select only
+    // offers active ones for NEW sales.
+    api.get<LicenseProduct[]>("/license-products", { params: { includeInactive: true } }).then((res) => setProducts(res.data));
     api.get<Project[]>("/projects").then((res) => setProjects(res.data.flatMap((p) => [p, ...(p.children ?? [])])));
   }, []);
 
   const projectsForClient = projects.filter((p) => p.clientId === form.clientId);
   const selectedProduct = products.find((p) => p.id === form.licenseProductId);
+  const productOptions = products.filter((p) => p.isActive || p.id === form.licenseProductId);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const qs = new URLSearchParams(Object.entries(filterParams).filter(([, v]) => v) as [string, string][]);
+      await downloadFile(`/api/export/sales.csv?${qs}`, "продажи.csv");
+    } catch (err) {
+      ui.toast((err as Error).message, "error");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   function onSelectProduct(licenseProductId: string) {
     const product = products.find((p) => p.id === licenseProductId);
@@ -97,13 +151,13 @@ export function SalesPage() {
   }
 
   function startCreate() {
-    setForm(emptyForm);
+    setForm(emptyForm());
     setEditingId(null);
     setFormOpen(true);
   }
 
-  function startEdit(sale: Sale) {
-    setForm({
+  function fillFrom(sale: Sale): SaleForm {
+    return {
       clientId: sale.clientId,
       projectId: sale.projectId ?? "",
       licenseProductId: sale.licenseProductId,
@@ -113,8 +167,22 @@ export function SalesPage() {
       // date is; leave it blank so it isn't misread as freshly recomputed.
       workDays: "",
       workEndDate: toDateInputValue(sale.workEndDate),
-    });
+    };
+  }
+
+  function startEdit(sale: Sale) {
+    setForm(fillFrom(sale));
     setEditingId(sale.id);
+    setFormOpen(true);
+  }
+
+  /** A copy dated today — the same product sold to the same client again. */
+  function startDuplicate(sale: Sale) {
+    const product = products.find((p) => p.id === sale.licenseProductId);
+    const workDays = product?.defaultWorkDays != null ? String(product.defaultWorkDays) : "";
+    const saleDate = todayInput();
+    setForm({ ...fillFrom(sale), saleDate, workDays, workEndDate: product?.type === "WORK" ? computeWorkEndDate(saleDate, workDays) : "" });
+    setEditingId(null);
     setFormOpen(true);
   }
 
@@ -126,12 +194,12 @@ export function SalesPage() {
       projectId: form.projectId || undefined,
       licenseProductId: form.licenseProductId,
       amount: Number(form.amount),
-      saleDate: new Date(form.saleDate).toISOString(),
+      saleDate: dateInputToIso(form.saleDate),
       // When editing, explicitly clear a stale work end date if the product
       // was switched away from WORK; on create there's nothing to clear.
       workEndDate:
         selectedProduct?.type === "WORK" && form.workEndDate
-          ? new Date(form.workEndDate).toISOString()
+          ? dateInputToIso(form.workEndDate)
           : editingId
           ? null
           : undefined,
@@ -147,8 +215,8 @@ export function SalesPage() {
       setFormOpen(false);
       setEditingId(null);
       load();
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось сохранить продажу", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось сохранить продажу"), "error");
     } finally {
       setSaving(false);
     }
@@ -166,8 +234,8 @@ export function SalesPage() {
       await api.delete(`/sales/${sale.id}`);
       ui.toast("Продажа удалена", "success");
       load();
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось удалить продажу", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось удалить продажу"), "error");
     }
   }
 
@@ -204,18 +272,25 @@ export function SalesPage() {
       align: "right",
       render: (s) => <span className="font-medium text-income">{formatMoney(s.amount)}</span>,
     },
-    {
-      key: "actions",
-      header: "",
-      align: "right",
-      render: (s) => (
-        <div className="flex items-center justify-end gap-1">
-          <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(s)} />
-          <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(s)} className="hover:text-expense" />
-        </div>
-      ),
-    },
+    ...(canEdit
+      ? [
+          {
+            key: "actions",
+            header: "",
+            align: "right" as const,
+            render: (s: Sale) => (
+              <div className="flex items-center justify-end gap-1">
+                <IconButton icon={Copy} label="Продать ещё раз" onClick={() => startDuplicate(s)} />
+                <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(s)} />
+                <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(s)} className="hover:text-expense" />
+              </div>
+            ),
+          },
+        ]
+      : []),
   ];
+
+  const hasFilters = Boolean(search || clientFilter || from || to);
 
   return (
     <div className="flex flex-col gap-5 sm:gap-6">
@@ -223,11 +298,39 @@ export function SalesPage() {
         title="Продажи"
         description="Разовая продажа продукта клиенту: доля вендора и налоговый резерв считаются автоматически по умолчаниям продукта. Для лицензий с продлением используйте раздел «Подписки»."
         actions={
-          <Button variant="primary" icon={Plus} onClick={startCreate}>
-            Новая продажа
-          </Button>
+          <>
+            <ExportButton onClick={handleExport} loading={exporting} />
+            {canEdit && (
+              <Button variant="primary" icon={Plus} onClick={startCreate}>
+                Новая продажа
+              </Button>
+            )}
+          </>
         }
       />
+
+      <FilterBar>
+        <Field label="Поиск" className="min-w-48 flex-1 sm:max-w-xs">
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-subtle" strokeWidth={1.8} />
+            <Input placeholder="Клиент или продукт" className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+        </Field>
+        <Field label="Клиент" className="min-w-40">
+          <Select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}>
+            <option value="">Все</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Период с">
+          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </Field>
+        <Field label="по">
+          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        </Field>
+      </FilterBar>
 
       <ListCard>
         <DataTable
@@ -249,26 +352,33 @@ export function SalesPage() {
                 </>
               }
               actions={
-                <>
-                  <Button size="sm" variant="ghost" icon={Pencil} onClick={() => startEdit(s)}>
-                    Изменить
-                  </Button>
-                  <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(s)}>
-                    Удалить
-                  </Button>
-                </>
+                canEdit && (
+                  <>
+                    <Button size="sm" variant="ghost" icon={Copy} onClick={() => startDuplicate(s)}>
+                      Ещё раз
+                    </Button>
+                    <Button size="sm" variant="ghost" icon={Pencil} onClick={() => startEdit(s)}>
+                      Изменить
+                    </Button>
+                    <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(s)}>
+                      Удалить
+                    </Button>
+                  </>
+                )
               }
             />
           )}
           empty={
             <EmptyState
               icon={Receipt}
-              title="Продаж пока нет"
-              description="Проведите первую продажу — операции дохода и расхода на вендора создадутся автоматически."
+              title={hasFilters ? "Ничего не найдено" : "Продаж пока нет"}
+              description={hasFilters ? "Попробуйте изменить фильтры." : "Проведите первую продажу — операции дохода и расхода на вендора создадутся автоматически."}
               action={
-                <Button variant="primary" icon={Plus} onClick={startCreate}>
-                  Новая продажа
-                </Button>
+                canEdit && !hasFilters ? (
+                  <Button variant="primary" icon={Plus} onClick={startCreate}>
+                    Новая продажа
+                  </Button>
+                ) : undefined
               }
             />
           }
@@ -325,9 +435,10 @@ export function SalesPage() {
           <Field label="Продукт">
             <Select value={form.licenseProductId} onChange={(e) => onSelectProduct(e.target.value)} required>
               <option value="">Выберите продукт…</option>
-              {products.map((p) => (
+              {productOptions.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
+                  {!p.isActive ? " (отключён)" : ""}
                 </option>
               ))}
             </Select>

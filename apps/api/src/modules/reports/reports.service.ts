@@ -2,12 +2,24 @@ import { prisma } from "../../prisma";
 import { config } from "../../config";
 import { getProjectAndDescendantIds } from "../projects/projects.service";
 import { computeWaterfall } from "../finance/waterfall";
+import { endOfDay, startOfMonth } from "../../utils/dates";
 
 export interface ReportFilters {
-  from?: string;
-  to?: string;
+  from?: Date;
+  to?: Date;
   projectId?: string;
   clientId?: string;
+}
+
+function accrualRange(filters: ReportFilters) {
+  if (!filters.from && !filters.to) return {};
+  return {
+    accrualDate: {
+      ...(filters.from ? { gte: filters.from } : {}),
+      // "to" is a calendar day — the whole of it counts.
+      ...(filters.to ? { lte: endOfDay(filters.to) } : {}),
+    },
+  };
 }
 
 function monthKey(date: Date): string {
@@ -54,14 +66,7 @@ export async function getPnL(organizationId: string, filters: ReportFilters) {
     where: {
       organizationId,
       ...(scopeWhere ?? {}),
-      ...(filters.from || filters.to
-        ? {
-            accrualDate: {
-              ...(filters.from ? { gte: new Date(filters.from) } : {}),
-              ...(filters.to ? { lte: new Date(filters.to) } : {}),
-            },
-          }
-        : {}),
+      ...accrualRange(filters),
     },
     include: { categoryValue: true },
   });
@@ -120,27 +125,41 @@ export async function getPnL(organizationId: string, filters: ReportFilters) {
  * DDS / cash flow (cash method): only operations that actually moved money
  * (status ACTUAL and paymentDate set), grouped by month, with a running
  * cumulative balance.
+ *
+ * When the report is windowed with `from`, the running balance starts from
+ * the money accumulated BEFORE the window (`openingBalance`) — otherwise a
+ * "last 12 months" view would show a balance that ignores everything earned
+ * earlier and disagree with the dashboard's all-time cash figure.
  */
 export async function getDDS(organizationId: string, filters: ReportFilters) {
   const scopeWhere = await resolveScopeWhere(organizationId, filters);
+  const cashWhere = { organizationId, status: "ACTUAL" as const, ...(scopeWhere ?? {}) };
 
-  const operations = await prisma.operation.findMany({
-    where: {
-      organizationId,
-      status: "ACTUAL",
-      paymentDate: { not: null },
-      ...(scopeWhere ?? {}),
-      ...(filters.from || filters.to
-        ? {
-            paymentDate: {
-              not: null,
-              ...(filters.from ? { gte: new Date(filters.from) } : {}),
-              ...(filters.to ? { lte: new Date(filters.to) } : {}),
-            },
-          }
-        : {}),
-    },
-  });
+  const [operations, openingAgg] = await Promise.all([
+    prisma.operation.findMany({
+      where: {
+        ...cashWhere,
+        paymentDate: {
+          not: null,
+          ...(filters.from ? { gte: filters.from } : {}),
+          ...(filters.to ? { lte: endOfDay(filters.to) } : {}),
+        },
+      },
+    }),
+    filters.from
+      ? prisma.operation.groupBy({
+          by: ["type"],
+          where: { ...cashWhere, paymentDate: { not: null, lt: filters.from } },
+          _sum: { amount: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  let openingBalance = 0;
+  for (const row of openingAgg) {
+    const sum = Number(row._sum.amount ?? 0);
+    openingBalance += row.type === "INCOME" ? sum : -sum;
+  }
 
   const periods = new Map<string, { period: string; inflow: number; outflow: number }>();
   for (const op of operations) {
@@ -152,7 +171,7 @@ export async function getDDS(organizationId: string, filters: ReportFilters) {
     else bucket.outflow += amount;
   }
 
-  let balance = 0;
+  let balance = openingBalance;
   const periodsArr = [...periods.values()]
     .sort((a, b) => a.period.localeCompare(b.period))
     .map((p) => {
@@ -168,6 +187,7 @@ export async function getDDS(organizationId: string, filters: ReportFilters) {
 
   return {
     periods: periodsArr,
+    openingBalance,
     totals: { ...totals, net: totals.inflow - totals.outflow, endingBalance: balance },
   };
 }
@@ -259,22 +279,24 @@ export async function getClientLTV(organizationId: string, clientId?: string) {
 /** High-level dashboard: current month PnL, 12-month trend, top clients, hours. */
 export async function getCompanySummary(organizationId: string) {
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthStart = startOfMonth(now);
   const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
 
   const [currentMonthPnl, trendPnl, trendDds, ltv, hoursThisMonth] = await Promise.all([
-    getPnL(organizationId, { from: startOfMonth.toISOString() }),
-    getPnL(organizationId, { from: twelveMonthsAgo.toISOString() }),
-    getDDS(organizationId, { from: twelveMonthsAgo.toISOString() }),
+    getPnL(organizationId, { from: monthStart }),
+    getPnL(organizationId, { from: twelveMonthsAgo }),
+    getDDS(organizationId, { from: twelveMonthsAgo }),
     getClientLTV(organizationId),
     prisma.timeEntry.aggregate({
-      where: { organizationId, date: { gte: startOfMonth } },
+      where: { organizationId, date: { gte: monthStart } },
       _sum: { hours: true },
     }),
   ]);
 
   return {
     currentMonth: currentMonthPnl.totals,
+    // Lets the dashboard compare the running month fairly (pro-rated by day).
+    monthProgress: { day: now.getDate(), daysInMonth: new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() },
     pnlTrend: trendPnl.periods,
     ddsTrend: trendDds.periods,
     topClients: ltv.slice(0, 10),
@@ -285,15 +307,32 @@ export async function getCompanySummary(organizationId: string) {
 /**
  * "Сколько денег у меня реально есть": cash actually in hand (income minus
  * expenses on a cash basis, which already nets out vendor payouts recorded
- * as real EXPENSE operations) minus the tax reserve accrued from taxable
- * income — see apps/api/src/modules/finance/waterfall.ts.
+ * as real EXPENSE operations) minus the tax reserve still owed — the reserve
+ * accrued from taxable income LESS the tax actually paid (EXPENSE operations
+ * flagged taxPayment). Without the subtraction a paid tax would count
+ * against free cash twice: once as the outflow, once as the never-shrinking
+ * reserve. See apps/api/src/modules/finance/waterfall.ts.
  */
 export async function getCashPosition(organizationId: string) {
-  const [dds, incomeOps] = await Promise.all([
+  const [dds, incomeOps, taxPaidAgg, byAccount, accounts] = await Promise.all([
     getDDS(organizationId, {}),
     prisma.operation.findMany({
       where: { organizationId, type: "INCOME", status: "ACTUAL", paymentDate: { not: null } },
       select: { amount: true, vendorSharePercent: true, taxable: true },
+    }),
+    prisma.operation.aggregate({
+      where: { organizationId, type: "EXPENSE", status: "ACTUAL", paymentDate: { not: null }, taxPayment: true },
+      _sum: { amount: true },
+    }),
+    prisma.operation.groupBy({
+      by: ["accountValueId", "type"],
+      where: { organizationId, status: "ACTUAL", paymentDate: { not: null } },
+      _sum: { amount: true },
+    }),
+    prisma.dictionaryValue.findMany({
+      where: { organizationId, dictionaryType: { code: "account" } },
+      select: { id: true, name: true, isActive: true },
+      orderBy: { sortOrder: "asc" },
     }),
   ]);
 
@@ -302,13 +341,30 @@ export async function getCashPosition(organizationId: string) {
     const { taxReserve } = computeWaterfall(Number(op.amount), Number(op.vendorSharePercent), op.taxable);
     taxReserveAccrued += taxReserve;
   }
+  const taxPaid = Number(taxPaidAgg._sum.amount ?? 0);
+  const taxReserveOutstanding = Math.max(0, taxReserveAccrued - taxPaid);
+
+  // Cash per account / cash box; operations with no account go to "unassigned".
+  const balances = new Map<string | null, number>();
+  for (const row of byAccount) {
+    const sum = Number(row._sum.amount ?? 0);
+    const key = row.accountValueId;
+    balances.set(key, (balances.get(key) ?? 0) + (row.type === "INCOME" ? sum : -sum));
+  }
+  const accountBalances = [
+    ...accounts.map((a) => ({ accountId: a.id, name: a.name, isActive: a.isActive, balance: balances.get(a.id) ?? 0 })),
+    ...(balances.has(null) ? [{ accountId: null, name: "Без счёта", isActive: true, balance: balances.get(null) ?? 0 }] : []),
+  ].filter((a) => a.balance !== 0 || a.isActive);
 
   const cumulativeCash = dds.totals.endingBalance;
 
   return {
     cumulativeCash,
     taxReserveAccrued,
-    spendable: cumulativeCash - taxReserveAccrued,
+    taxPaid,
+    taxReserveOutstanding,
+    spendable: cumulativeCash - taxReserveOutstanding,
     taxReservePercent: config.taxReservePercent,
+    accountBalances,
   };
 }

@@ -110,6 +110,28 @@ export function UiProvider({ children }: { children: ReactNode }) {
     resolvePrompt(promptValue);
   }
 
+  // Global signals from the API client: no connection, or a role that may not
+  // do this. Raised as DOM events because axios lives outside React.
+  const lastOfflineToast = useRef(0);
+  useEffect(() => {
+    const onOffline = () => {
+      const now = Date.now();
+      if (now - lastOfflineToast.current < 8000) return;
+      lastOfflineToast.current = now;
+      toast("Нет связи с сервером. Проверьте интернет или попробуйте позже.", "error");
+    };
+    const onForbidden = (e: Event) => {
+      const message = (e as CustomEvent<string | undefined>).detail;
+      toast(message ?? "Недостаточно прав для этого действия", "error");
+    };
+    window.addEventListener("api:offline", onOffline);
+    window.addEventListener("api:forbidden", onForbidden);
+    return () => {
+      window.removeEventListener("api:offline", onOffline);
+      window.removeEventListener("api:forbidden", onForbidden);
+    };
+  }, [toast]);
+
   // Focus (and select) the prompt field so the value can be overtyped at once.
   useEffect(() => {
     if (!promptState) return;

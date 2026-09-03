@@ -1,4 +1,4 @@
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { IconButton } from "./Button";
 
@@ -23,18 +23,51 @@ export function Modal({
   children?: ReactNode;
   size?: "sm" | "md" | "lg";
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!open) return;
+    const opener = document.activeElement as HTMLElement | null;
+    const focusable = () =>
+      [...(dialogRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ) ?? [])].filter((el) => el.offsetParent !== null);
+
+    // Keyboard users: Escape closes, Tab cycles inside the dialog instead of
+    // wandering off into the page underneath it.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const items = focusable();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
     // Stop the page behind the sheet from scrolling with it.
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    // Move focus into the dialog (first field, else the close button).
+    const timer = setTimeout(() => {
+      const items = focusable();
+      const target = items.find((el) => el.tagName !== "BUTTON") ?? items[0];
+      target?.focus();
+    }, 30);
     return () => {
+      clearTimeout(timer);
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = previous;
+      opener?.focus?.();
     };
   }, [open, onClose]);
 
@@ -49,6 +82,7 @@ export function Modal({
         onClick={onClose}
       />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}

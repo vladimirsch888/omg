@@ -5,5 +5,5 @@ export { Badge, StatusBadge, type BadgeTone } from "./Badge";
 export { DataTable, RowCard, MetaItem, type Column } from "./DataTable";
 export { Modal } from "./Modal";
 export { UiProvider, useUi } from "./UiProvider";
-export { Skeleton, PageSkeleton, EmptyState, InlineBar } from "./Feedback";
+export { Skeleton, PageSkeleton, EmptyState, InlineBar, Pagination, FilterBar, ExportButton } from "./Feedback";
 export { Sparkline, Delta } from "./Sparkline";

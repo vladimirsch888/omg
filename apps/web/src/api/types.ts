@@ -5,6 +5,7 @@ export interface DictionaryValue {
   color?: string | null;
   sortOrder: number;
   isActive: boolean;
+  systemKey?: string | null;
 }
 
 export interface DictionaryType {
@@ -62,6 +63,10 @@ export interface Operation {
   categoryValue?: DictionaryValue | null;
   paymentMethodValueId?: string | null;
   paymentMethodValue?: DictionaryValue | null;
+  accountValueId?: string | null;
+  accountValue?: DictionaryValue | null;
+  /** EXPENSE that pays tax — reduces the outstanding tax reserve. */
+  taxPayment?: boolean;
   counterparty?: string | null;
   description?: string | null;
   vendorSharePercent?: string | number;
@@ -106,7 +111,16 @@ export interface PnLReport {
 
 export interface DDSReport {
   periods: { period: string; inflow: number; outflow: number; net: number; cumulativeBalance: number }[];
+  /** Cash accumulated before the report window; the running balance starts here. */
+  openingBalance: number;
   totals: { inflow: number; outflow: number; net: number; endingBalance: number };
+}
+
+export interface Paged<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface ClientLTV {
@@ -124,6 +138,7 @@ export interface ClientLTV {
 
 export interface CompanySummary {
   currentMonth: { income: number; expense: number; profit: number };
+  monthProgress: { day: number; daysInMonth: number };
   pnlTrend: PnLReport["periods"];
   ddsTrend: DDSReport["periods"];
   topClients: ClientLTV[];
@@ -196,8 +211,40 @@ export interface Sale {
 export interface CashPosition {
   cumulativeCash: number;
   taxReserveAccrued: number;
+  taxPaid: number;
+  taxReserveOutstanding: number;
   spendable: number;
   taxReservePercent: number;
+  accountBalances: { accountId: string | null; name: string; isActive: boolean; balance: number }[];
+}
+
+export interface Reminder {
+  kind: "overdue" | "due_soon" | "invoice_stale" | "work_deadline" | "request_high";
+  title: string;
+  detail: string;
+  days: number;
+  entity: "subscription" | "sale" | "request";
+  entityId: string;
+  clientName?: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  action: string;
+  entity: string;
+  entityId?: string | null;
+  summary: string;
+  details?: Record<string, unknown> | null;
+  createdAt: string;
+  user?: { id: string; name: string } | null;
+}
+
+export interface ProjectEffort {
+  hours: number;
+  budgetHours: number | null;
+  hourlyRate: number | null;
+  laborCost: number | null;
+  budgetUsedPercent: number | null;
 }
 
 export interface SalesPlans {

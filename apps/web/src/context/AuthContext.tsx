@@ -12,8 +12,14 @@ interface AuthContextValue {
   user: User | null;
   organization: Organization | null;
   loading: boolean;
+  /** OWNER or ADMIN — sees administration. */
+  isAdmin: boolean;
+  /** Everyone but VIEWER — may create, edit and delete. */
+  canEdit: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (organizationName: string, name: string, email: string, password: string) => Promise<void>;
+  /** Swap the stored token (after a password change the old one is void). */
+  replaceToken: (token: string) => void;
   logout: () => void;
 }
 
@@ -36,7 +42,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(res.data.user);
         setOrganization(res.data.organization);
       })
-      .catch(() => localStorage.removeItem("token"))
+      .catch((err) => {
+        // Only a rejected token means "signed out"; a network blip during a
+        // deploy must not throw the user back to the login screen.
+        if (err?.response?.status === 401) localStorage.removeItem("token");
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -54,14 +64,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOrganization(res.data.organization);
   }
 
+  function replaceToken(token: string) {
+    localStorage.setItem("token", token);
+  }
+
   function logout() {
     localStorage.removeItem("token");
     setUser(null);
     setOrganization(null);
   }
 
+  const isAdmin = user?.role === "OWNER" || user?.role === "ADMIN";
+  const canEdit = Boolean(user) && user?.role !== "VIEWER";
+
   return (
-    <AuthContext.Provider value={{ user, organization, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, organization, loading, isAdmin, canEdit, login, register, replaceToken, logout }}>
       {children}
     </AuthContext.Provider>
   );

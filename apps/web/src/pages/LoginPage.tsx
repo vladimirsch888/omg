@@ -1,6 +1,7 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
+import { api, errorMessage } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { Button, Field, Input } from "../components/ui";
 
@@ -8,12 +9,22 @@ export function LoginPage() {
   const { login, register } = useAuth();
   const navigate = useNavigate();
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [registrationOpen, setRegistrationOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [organizationName, setOrganizationName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Sign-up is only offered while the server allows it (first setup or
+  // ALLOW_REGISTRATION) — otherwise the link would lead to a 403.
+  useEffect(() => {
+    api
+      .get<{ open: boolean }>("/auth/registration-status")
+      .then((res) => setRegistrationOpen(res.data.open))
+      .catch(() => setRegistrationOpen(false));
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -26,8 +37,8 @@ export function LoginPage() {
         await register(organizationName, name, email, password);
       }
       navigate("/");
-    } catch (err: any) {
-      setError(err.response?.data?.error ?? "Ошибка. Попробуйте ещё раз");
+    } catch (err) {
+      setError(errorMessage(err, "Ошибка. Попробуйте ещё раз"));
     } finally {
       setSubmitting(false);
     }
@@ -76,14 +87,14 @@ export function LoginPage() {
             />
           </Field>
 
-          <Field label="Пароль">
+          <Field label="Пароль" hint={mode === "register" ? "Не короче 8 символов, не только цифры" : undefined}>
             <Input
               type="password"
               autoComplete={mode === "login" ? "current-password" : "new-password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={6}
+              minLength={mode === "register" ? 8 : 1}
             />
           </Field>
 
@@ -99,12 +110,18 @@ export function LoginPage() {
           </Button>
         </form>
 
-        <button
-          className="mt-5 w-full text-center text-sm text-ink-muted transition-colors hover:text-accent"
-          onClick={() => setMode(mode === "login" ? "register" : "login")}
-        >
-          {mode === "login" ? "Первый раз здесь? Создать компанию" : "Уже есть аккаунт? Войти"}
-        </button>
+        {registrationOpen ? (
+          <button
+            className="mt-5 w-full text-center text-sm text-ink-muted transition-colors hover:text-accent"
+            onClick={() => setMode(mode === "login" ? "register" : "login")}
+          >
+            {mode === "login" ? "Первый раз здесь? Создать компанию" : "Уже есть аккаунт? Войти"}
+          </button>
+        ) : (
+          <p className="mt-5 text-center text-xs text-ink-subtle">
+            Нет доступа? Попросите владельца или администратора создать вам пользователя.
+          </p>
+        )}
       </div>
     </div>
   );

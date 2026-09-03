@@ -5,6 +5,8 @@ export interface AuthTokenPayload {
   userId: string;
   organizationId: string;
   role: string;
+  /** Must match User.tokenVersion; a mismatch means "logged out everywhere". */
+  tokenVersion: number;
   exp: number;
 }
 

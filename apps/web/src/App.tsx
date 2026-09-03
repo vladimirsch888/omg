@@ -19,6 +19,8 @@ import { DDSPage } from "./pages/DDSPage";
 import { DictionariesPage } from "./pages/admin/DictionariesPage";
 import { UsersPage } from "./pages/admin/UsersPage";
 import { SettingsPage } from "./pages/admin/SettingsPage";
+import { AuditPage } from "./pages/admin/AuditPage";
+import { NotFoundPage } from "./pages/NotFoundPage";
 
 export default function App() {
   return (
@@ -48,6 +50,8 @@ export default function App() {
         <Route path="/admin/dictionaries" element={<DictionariesPage />} />
         <Route path="/admin/users" element={<UsersPage />} />
         <Route path="/admin/settings" element={<SettingsPage />} />
+        <Route path="/admin/audit" element={<AuditPage />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
   );

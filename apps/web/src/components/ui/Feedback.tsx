@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, type LucideIcon } from "lucide-react";
+import { Button, IconButton } from "./Button";
 
 export function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse rounded-lg bg-raised ${className}`} />;
@@ -73,5 +74,48 @@ export function InlineBar({
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-raised">
       <div className={`h-full rounded-full ${fill}`} style={{ width: `${pct}%` }} />
     </div>
+  );
+}
+
+/** «1–50 из 312» with previous/next — the same control under every long list. */
+export function Pagination({
+  page,
+  pageSize,
+  total,
+  onChange,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onChange: (page: number) => void;
+}) {
+  if (total <= pageSize) return null;
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(total, page * pageSize);
+  const last = Math.ceil(total / pageSize);
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-line pt-3 text-xs text-ink-muted sm:mt-2">
+      <span className="tnum">
+        {from}–{to} из {total}
+      </span>
+      <span className="flex items-center gap-1">
+        <IconButton icon={ChevronLeft} label="Предыдущая страница" disabled={page <= 1} onClick={() => onChange(page - 1)} />
+        <span className="min-w-8 text-center tnum">{page}</span>
+        <IconButton icon={ChevronRight} label="Следующая страница" disabled={page >= last} onClick={() => onChange(page + 1)} />
+      </span>
+    </div>
+  );
+}
+
+/** Row of filter controls above a list; wraps on phones, one line on desktop. */
+export function FilterBar({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`flex flex-wrap items-end gap-2 ${className}`}>{children}</div>;
+}
+
+export function ExportButton({ onClick, loading = false }: { onClick: () => void; loading?: boolean }) {
+  return (
+    <Button variant="secondary" icon={Download} onClick={onClick} loading={loading}>
+      Экспорт CSV
+    </Button>
   );
 }

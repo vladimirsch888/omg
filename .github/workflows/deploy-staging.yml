@@ -31,6 +31,20 @@ jobs:
           '
 
       - name: Health check
+        env:
+          BASE_URL: ${{ secrets.STAGING_URL }}
+          BASIC_AUTH: ${{ secrets.STAGING_BASIC_AUTH }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
-          sleep 3
-          curl -fsS "http://${{ secrets.VPS_HOST }}:8080/" -o /dev/null
+          # The API answers /api/health only when Node is up AND Nginx proxies to
+          # it — checking "/" alone would pass with the API down. STAGING_URL and
+          # STAGING_BASIC_AUTH (user:password) are optional secrets for an HTTPS
+          # staging behind basic auth; without them the plain IP:8080 is used.
+          URL="${BASE_URL:-http://$VPS_HOST:8080}/api/health"
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS -m 10 ${BASIC_AUTH:+-u "$BASIC_AUTH"} "$URL" | grep -q '"ok":true'; then
+              echo "API healthy"; exit 0
+            fi
+            sleep 4
+          done
+          echo "API did not become healthy at $URL"; exit 1

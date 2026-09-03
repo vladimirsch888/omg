@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowUpRight, CalendarRange, CornerDownRight, TrendingUp, Wallet } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, CalendarClock, CalendarRange, CornerDownRight, RefreshCw, TrendingUp, Wallet } from "lucide-react";
 import { api } from "../api/client";
-import { Client, ClientLTV, Project, Sale } from "../api/types";
+import { Client, ClientLTV, Project, Sale, Subscription } from "../api/types";
 import { Badge, Card, PageSkeleton, StatCard, StatusBadge, type BadgeTone } from "../components/ui";
 import { formatDate, formatMoney } from "../utils/format";
 
@@ -18,9 +18,23 @@ const statusTone: Record<Project["status"], BadgeTone> = {
   CLOSED: "neutral",
 };
 
+const subscriptionStatusLabel: Record<Subscription["status"], string> = {
+  ACTIVE: "Активна",
+  PAUSED: "Приостановлена",
+  CANCELLED: "Отменена",
+};
+
+const subscriptionStatusTone: Record<Subscription["status"], BadgeTone> = {
+  ACTIVE: "income",
+  PAUSED: "reserve",
+  CANCELLED: "neutral",
+};
+
+type ClientWithRelations = Client & { projects: Project[]; subscriptions: Subscription[] };
+
 export function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [client, setClient] = useState<(Client & { projects: Project[] }) | null>(null);
+  const [client, setClient] = useState<ClientWithRelations | null>(null);
   const [ltv, setLtv] = useState<ClientLTV | null>(null);
   const [sales, setSales] = useState<Sale[]>([]);
 
@@ -33,12 +47,15 @@ export function ClientDetailPage() {
 
   if (!client) return <PageSkeleton stats={4} rows={4} />;
 
+  const activeSubscriptions = client.subscriptions.filter((s) => s.status === "ACTIVE");
+  const monthlyRecurring = activeSubscriptions.reduce((sum, s) => sum + Number(s.price) / s.durationMonths, 0);
+
   return (
     <div className="flex flex-col gap-5 sm:gap-6">
       <div>
         <Link
           to="/clients"
-          className="inline-flex items-center gap-1.5 text-xs text-ink-muted transition-colors hover:text-accent"
+          className="-my-2 inline-flex min-h-10 items-center gap-1.5 py-2 text-xs text-ink-muted transition-colors hover:text-accent"
         >
           <ArrowLeft className="size-3.5" strokeWidth={1.8} />
           Все клиенты
@@ -47,6 +64,7 @@ export function ClientDetailPage() {
         <p className="mt-1 text-sm text-ink-muted">
           {client.legalName}
           {client.inn && ` · ИНН ${client.inn}`}
+          {client.contactPerson && ` · ${client.contactPerson}`}
         </p>
       </div>
 
@@ -64,6 +82,53 @@ export function ClientDetailPage() {
         </div>
       )}
 
+      <Card
+        title="Подписки"
+        action={
+          activeSubscriptions.length > 0 ? (
+            <span className="text-xs text-ink-subtle tnum">≈ {formatMoney(monthlyRecurring)} в месяц по активным</span>
+          ) : undefined
+        }
+      >
+        {client.subscriptions.length > 0 ? (
+          <ul className="flex flex-col gap-2">
+            {client.subscriptions.map((s) => (
+              <li
+                key={s.id}
+                className={`flex items-center justify-between gap-3 rounded-xl border p-3 ${
+                  s.invoiceSentAt ? "border-reserve/30 bg-reserve-soft" : "border-line bg-raised/40"
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Link to="/subscriptions" className="-my-1.5 inline-flex min-h-9 min-w-0 items-center truncate py-1.5 text-sm font-medium text-ink transition-colors hover:text-accent">
+                      {s.licenseProduct?.name}
+                    </Link>
+                    <StatusBadge label={subscriptionStatusLabel[s.status]} tone={subscriptionStatusTone[s.status]} />
+                    {s.invoiceSentAt && <Badge tone="reserve">счёт от {formatDate(s.invoiceSentAt)}</Badge>}
+                    {!s.taxable && <Badge tone="reserve">на карту</Badge>}
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-ink-subtle">
+                    <span className="inline-flex items-center gap-1">
+                      <CalendarClock className="size-3" strokeWidth={1.8} />
+                      следующий платёж {formatDate(s.nextBillingDate)}
+                    </span>
+                    <span>каждые {s.durationMonths} мес.</span>
+                    {s.project?.name && <span>· {s.project.name}</span>}
+                  </div>
+                </div>
+                <span className="shrink-0 text-sm font-semibold text-ink tnum">{formatMoney(s.price)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="py-4 text-center text-sm text-ink-subtle">
+            <RefreshCw className="mr-1 inline size-3.5 align-[-2px]" strokeWidth={1.8} />
+            Подписок пока нет
+          </p>
+        )}
+      </Card>
+
       <Card title="Проекты">
         {client.projects.length > 0 ? (
           <ul className="flex flex-col gap-2.5">
@@ -77,7 +142,7 @@ export function ClientDetailPage() {
                 <div className="flex items-center justify-between gap-3">
                   <Link
                     to={`/projects/${p.id}`}
-                    className={`text-sm font-medium transition-colors hover:text-accent ${
+                    className={`-my-1.5 inline-flex min-h-10 items-center py-1.5 text-sm font-medium transition-colors hover:text-accent ${
                       p.status === "CLOSED" ? "text-ink-muted" : "text-ink"
                     }`}
                   >
@@ -91,7 +156,9 @@ export function ClientDetailPage() {
                       <li key={sp.id}>
                         <Link
                           to={`/projects/${sp.id}`}
-                          className="inline-flex items-center gap-1.5 text-sm text-ink-muted transition-colors hover:text-accent"
+                          className={`inline-flex min-h-9 items-center gap-1.5 text-sm transition-colors hover:text-accent ${
+                            sp.status === "CLOSED" ? "text-ink-subtle line-through" : "text-ink-muted"
+                          }`}
                         >
                           <CornerDownRight className="size-3.5 text-ink-subtle" strokeWidth={1.8} />
                           {sp.name}
@@ -124,6 +191,7 @@ export function ClientDetailPage() {
                   <div className="mt-0.5 text-xs text-ink-subtle">
                     {formatDate(s.saleDate)}
                     {s.project?.name ? ` · ${s.project.name}` : ""}
+                    {s.workEndDate ? ` · работы до ${formatDate(s.workEndDate)}` : ""}
                   </div>
                 </div>
                 <span className="shrink-0 text-sm font-semibold text-income tnum">{formatMoney(s.amount)}</span>

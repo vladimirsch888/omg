@@ -1,21 +1,36 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { prisma } from "../../prisma";
-import { requireAuth } from "../../middleware/auth.middleware";
 import { AppError } from "../../utils/errors";
+import { assertClient, assertLicenseProduct, assertProject } from "../../utils/ownership";
+import { audit } from "../audit/audit.service";
 import { billSubscription, getMonthSummary } from "./subscriptions.service";
 import type { AppEnv } from "../../types/hono";
 
 export const subscriptionsRouter = new Hono<AppEnv>();
-subscriptionsRouter.use(requireAuth);
+
+const listQuerySchema = z.object({
+  clientId: z.string().uuid().optional(),
+  status: z.enum(["ACTIVE", "PAUSED", "CANCELLED"]).optional(),
+  q: z.string().trim().max(200).optional(),
+});
 
 subscriptionsRouter.get("/", async (c) => {
   const auth = c.get("auth");
-  const clientId = c.req.query("clientId");
+  const q = listQuerySchema.parse(c.req.query());
   const subscriptions = await prisma.subscription.findMany({
     where: {
       organizationId: auth.organizationId,
-      ...(clientId ? { clientId } : {}),
+      ...(q.clientId ? { clientId: q.clientId } : {}),
+      ...(q.status ? { status: q.status } : {}),
+      ...(q.q
+        ? {
+            OR: [
+              { client: { name: { contains: q.q, mode: "insensitive" } } },
+              { licenseProduct: { name: { contains: q.q, mode: "insensitive" } } },
+            ],
+          }
+        : {}),
     },
     include: {
       client: { select: { id: true, name: true } },
@@ -68,18 +83,16 @@ subscriptionsRouter.post("/", async (c) => {
   const organizationId = auth.organizationId;
 
   const [client, product] = await Promise.all([
-    prisma.client.findFirst({ where: { id: body.clientId, organizationId } }),
-    prisma.licenseProduct.findFirst({ where: { id: body.licenseProductId, organizationId } }),
+    assertClient(organizationId, body.clientId),
+    assertLicenseProduct(organizationId, body.licenseProductId),
   ]);
-  if (!client) throw new AppError(404, "Клиент не найден");
-  if (!product) throw new AppError(404, "Продукт не найден");
+  void client;
   if (product.type === "WORK") {
     throw new AppError(400, "У этого продукта нет срока подписки — это разовая работа. Оформите её через раздел Продажи.");
   }
 
   if (body.projectId) {
-    const project = await prisma.project.findFirst({ where: { id: body.projectId, organizationId } });
-    if (!project) throw new AppError(404, "Проект не найден");
+    const project = await assertProject(organizationId, body.projectId);
     if (project.clientId !== body.clientId) {
       throw new AppError(400, "Проект принадлежит другому клиенту");
     }
@@ -108,6 +121,7 @@ subscriptionsRouter.post("/", async (c) => {
   });
 
   const { subscription: billed } = await billSubscription(subscription, startDate, auth.userId);
+  audit({ organizationId, userId: auth.userId, action: "create", entity: "subscription", entityId: subscription.id, summary: `Подписка: ${subscription.client.name} — ${subscription.licenseProduct.name}, ${Number(subscription.price)} ₽ / ${durationMonths} мес.` });
   return c.json(billed, 201);
 });
 
@@ -137,6 +151,7 @@ subscriptionsRouter.post("/:id/bill", async (c) => {
   // itself still advances from the old due date (see billSubscription), so
   // a late payment doesn't drag future due dates along with it.
   const result = await billSubscription(subscription, new Date(), auth.userId, body.amount);
+  audit({ organizationId: auth.organizationId, userId: auth.userId, action: "bill", entity: "subscription", entityId: subscription.id, summary: `Продлена подписка ${subscription.client.name} — ${subscription.licenseProduct.name} на ${Number(result.incomeOperation.amount)} ₽` });
   return c.json(result, 201);
 });
 
@@ -157,6 +172,7 @@ subscriptionsRouter.post("/:id/invoice-sent", async (c) => {
     where: { id: subscription.id },
     data: { invoiceSentAt: new Date() },
   });
+  audit({ organizationId: auth.organizationId, userId: auth.userId, action: "update", entity: "subscription", entityId: subscription.id, summary: "Отмечено: счёт отправлен" });
   return c.json(updated);
 });
 
@@ -171,6 +187,7 @@ subscriptionsRouter.delete("/:id/invoice-sent", async (c) => {
     where: { id: subscription.id },
     data: { invoiceSentAt: null },
   });
+  audit({ organizationId: auth.organizationId, userId: auth.userId, action: "update", entity: "subscription", entityId: subscription.id, summary: "Снята отметка «счёт отправлен»" });
   return c.json(updated);
 });
 
@@ -198,6 +215,7 @@ subscriptionsRouter.patch("/:id", async (c) => {
       nextBillingDate: body.nextBillingDate ? new Date(body.nextBillingDate) : undefined,
     },
   });
+  audit({ organizationId: auth.organizationId, userId: auth.userId, action: "update", entity: "subscription", entityId: subscription.id, summary: `Изменена подписка${body.status ? ` — статус ${body.status}` : ""}`, details: body });
   return c.json(updated);
 });
 
@@ -212,5 +230,6 @@ subscriptionsRouter.delete("/:id", async (c) => {
   });
   if (!subscription) throw new AppError(404, "Подписка не найдена");
   await prisma.subscription.delete({ where: { id: subscription.id } });
+  audit({ organizationId: auth.organizationId, userId: auth.userId, action: "delete", entity: "subscription", entityId: subscription.id, summary: "Удалена подписка" });
   return c.body(null, 204);
 });

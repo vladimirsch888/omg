@@ -1,22 +1,33 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { prisma } from "../../prisma";
-import { requireAuth } from "../../middleware/auth.middleware";
 import { AppError } from "../../utils/errors";
+import { assertDictionaryValue, assertProject } from "../../utils/ownership";
+import { audit } from "../audit/audit.service";
 import type { AppEnv } from "../../types/hono";
 
 export const requestsRouter = new Hono<AppEnv>();
-requestsRouter.use(requireAuth);
+
+const statusSchema = z.enum(["OPEN", "IN_PROGRESS", "DONE", "CANCELLED"]);
+const prioritySchema = z.enum(["LOW", "MEDIUM", "HIGH"]);
+
+const listQuerySchema = z.object({
+  projectId: z.string().uuid().optional(),
+  status: statusSchema.optional(),
+  priority: prioritySchema.optional(),
+  q: z.string().trim().max(200).optional(),
+});
 
 requestsRouter.get("/", async (c) => {
   const auth = c.get("auth");
-  const projectId = c.req.query("projectId");
-  const status = c.req.query("status");
+  const q = listQuerySchema.parse(c.req.query());
   const requests = await prisma.request.findMany({
     where: {
       organizationId: auth.organizationId,
-      ...(projectId ? { projectId } : {}),
-      ...(status ? { status: status as any } : {}),
+      ...(q.projectId ? { projectId: q.projectId } : {}),
+      ...(q.status ? { status: q.status } : {}),
+      ...(q.priority ? { priority: q.priority } : {}),
+      ...(q.q ? { title: { contains: q.q, mode: "insensitive" } } : {}),
     },
     include: {
       project: { select: { id: true, name: true, clientId: true } },
@@ -36,10 +47,10 @@ requestsRouter.get("/", async (c) => {
 
 const requestSchema = z.object({
   projectId: z.string().uuid(),
-  title: z.string().min(1),
-  description: z.string().optional(),
-  status: z.enum(["OPEN", "IN_PROGRESS", "DONE", "CANCELLED"]).optional(),
-  priority: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
+  title: z.string().trim().min(1).max(300),
+  description: z.string().trim().max(5000).optional(),
+  status: statusSchema.optional(),
+  priority: prioritySchema.optional(),
   requestTypeValueId: z.string().uuid().optional().nullable(),
 });
 
@@ -47,12 +58,13 @@ requestsRouter.post("/", async (c) => {
   const auth = c.get("auth");
   const body = requestSchema.parse(await c.req.json());
   const organizationId = auth.organizationId;
-  const project = await prisma.project.findFirst({ where: { id: body.projectId, organizationId } });
-  if (!project) throw new AppError(404, "Проект не найден");
+  await assertProject(organizationId, body.projectId);
+  if (body.requestTypeValueId) await assertDictionaryValue(organizationId, body.requestTypeValueId, "request_type", "Тип заявки");
 
   const request = await prisma.request.create({
     data: { ...body, organizationId },
   });
+  audit({ organizationId, userId: auth.userId, action: "create", entity: "request", entityId: request.id, summary: `Создана заявка «${request.title}»` });
   return c.json(request, 201);
 });
 
@@ -63,13 +75,18 @@ requestsRouter.patch("/:id", async (c) => {
     where: { id: c.req.param("id"), organizationId: auth.organizationId },
   });
   if (!request) throw new AppError(404, "Заявка не найдена");
+  if (body.projectId) await assertProject(auth.organizationId, body.projectId);
+  if (body.requestTypeValueId) await assertDictionaryValue(auth.organizationId, body.requestTypeValueId, "request_type", "Тип заявки");
 
-  const data: any = { ...body };
+  const data: Record<string, unknown> = { ...body };
   if (body.status === "DONE" && request.status !== "DONE") {
     data.closedAt = new Date();
+  } else if (body.status && body.status !== "DONE" && request.status === "DONE") {
+    data.closedAt = null;
   }
 
   const updated = await prisma.request.update({ where: { id: request.id }, data });
+  audit({ organizationId: auth.organizationId, userId: auth.userId, action: "update", entity: "request", entityId: request.id, summary: `Изменена заявка «${updated.title}»${body.status ? ` — статус ${body.status}` : ""}`, details: body });
   return c.json(updated);
 });
 
@@ -80,5 +97,6 @@ requestsRouter.delete("/:id", async (c) => {
   });
   if (!request) throw new AppError(404, "Заявка не найдена");
   await prisma.request.delete({ where: { id: request.id } });
+  audit({ organizationId: auth.organizationId, userId: auth.userId, action: "delete", entity: "request", entityId: request.id, summary: `Удалена заявка «${request.title}»` });
   return c.body(null, 204);
 });

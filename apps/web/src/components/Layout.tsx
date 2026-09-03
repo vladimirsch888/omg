@@ -87,7 +87,8 @@ export function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+4.75rem)] sm:px-6 sm:pt-6 lg:pb-8">
+      {/* min-w-0: a wide table must scroll inside its card, never push the page sideways. */}
+      <main className="min-w-0 flex-1 px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+4.75rem)] sm:px-6 sm:pt-6 lg:pb-8">
         <Outlet />
       </main>
 

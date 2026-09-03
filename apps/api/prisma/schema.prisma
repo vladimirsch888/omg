@@ -28,6 +28,7 @@ model Organization {
   subscriptions   Subscription[]
   sales           Sale[]
   salesPlans      SalesPlan[]
+  auditLogs       AuditLog[]
 }
 
 enum Role {
@@ -46,10 +47,14 @@ model User {
   name           String
   role           Role         @default(MANAGER)
   isActive       Boolean      @default(true)
+  /// Bumped on password change and "log out everywhere": a token whose
+  /// version is older than this is rejected by requireAuth.
+  tokenVersion   Int          @default(0)
   createdAt      DateTime     @default(now())
 
   timeEntries TimeEntry[]
   operations  Operation[] @relation("OperationCreatedBy")
+  auditLogs   AuditLog[]
 }
 
 // ---------------------------------------------------------------------------
@@ -157,15 +162,21 @@ model DictionaryValue {
   color            String?
   sortOrder        Int            @default(0)
   isActive         Boolean        @default(true)
+  /// Stable machine role of a value the code has to find regardless of how
+  /// the user renamed its code/name — e.g. "vendor_cost" for the category
+  /// vendor payouts are booked under. Null for ordinary values.
+  systemKey        String?
 
   operations      Operation[]      @relation("OperationCategory")
   paymentOps      Operation[]      @relation("OperationPaymentMethod")
+  accountOps      Operation[]      @relation("OperationAccount")
   projects        Project[]
   requests        Request[]        @relation("RequestType")
   licenseProducts LicenseProduct[] @relation("LicenseProductCategory")
 
   @@unique([dictionaryTypeId, code])
   @@index([organizationId])
+  @@index([organizationId, systemKey])
 }
 
 // ---------------------------------------------------------------------------
@@ -337,6 +348,16 @@ model Operation {
   paymentMethodValueId String?
   paymentMethodValue   DictionaryValue? @relation("OperationPaymentMethod", fields: [paymentMethodValueId], references: [id])
 
+  /// Which bank account / cash box the money moved through — a value of the
+  /// "account" dictionary. Optional so old data and "don't care" both work.
+  accountValueId String?
+  accountValue   DictionaryValue? @relation("OperationAccount", fields: [accountValueId], references: [id])
+
+  /// An EXPENSE that pays the tax the reserve was set aside for. Cash
+  /// position subtracts these from the accrued reserve, so paying tax
+  /// doesn't count against "свободные деньги" twice.
+  taxPayment Boolean @default(false)
+
   counterparty String?
   description  String?
   isDemo       Boolean @default(false)
@@ -363,6 +384,7 @@ model Operation {
   @@index([projectId])
   @@index([subscriptionId])
   @@index([saleId])
+  @@index([accountValueId])
 }
 
 // ---------------------------------------------------------------------------
@@ -455,4 +477,27 @@ model SalesPlan {
   updatedAt DateTime @updatedAt
 
   @@index([organizationId, year])
+}
+
+/// Who changed what: one row per create/update/delete of a business record,
+/// with a short human-readable summary. Never deleted with the record —
+/// entityId is a plain string, not a relation, precisely so the trail
+/// outlives the thing it describes.
+model AuditLog {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  action   String
+  entity   String
+  entityId String?
+  summary  String
+  details  Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, entity, entityId])
 }

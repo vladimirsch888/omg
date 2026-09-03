@@ -1,18 +1,33 @@
 import { Hono } from "hono";
-import { requireAuth } from "../../middleware/auth.middleware";
+import { z } from "zod";
+import { parseDateParam } from "../../utils/dates";
 import { getPnL, getDDS, getClientLTV, getCompanySummary, getCashPosition, ReportFilters } from "./reports.service";
 import type { AppEnv } from "../../types/hono";
 
 export const reportsRouter = new Hono<AppEnv>();
-reportsRouter.use(requireAuth);
 
-function parseFilters(query: Record<string, string>): ReportFilters {
-  return {
-    from: query.from,
-    to: query.to,
-    projectId: query.projectId,
-    clientId: query.clientId,
-  };
+const dateParam = z
+  .string()
+  .optional()
+  .transform((v, ctx) => {
+    const d = parseDateParam(v);
+    if (d === null) {
+      ctx.addIssue({ code: "custom", message: "Некорректная дата в фильтре отчёта" });
+      return undefined;
+    }
+    return d;
+  });
+
+const filtersSchema = z.object({
+  from: dateParam,
+  to: dateParam,
+  projectId: z.string().uuid().optional(),
+  clientId: z.string().uuid().optional(),
+});
+
+export function parseFilters(query: Record<string, string>): ReportFilters {
+  const q = filtersSchema.parse(query);
+  return { from: q.from, to: q.to, projectId: q.projectId, clientId: q.clientId };
 }
 
 reportsRouter.get("/pnl", async (c) => {
@@ -29,7 +44,8 @@ reportsRouter.get("/dds", async (c) => {
 
 reportsRouter.get("/ltv", async (c) => {
   const auth = c.get("auth");
-  const result = await getClientLTV(auth.organizationId, c.req.query("clientId"));
+  const clientId = z.string().uuid().optional().parse(c.req.query("clientId") || undefined);
+  const result = await getClientLTV(auth.organizationId, clientId);
   return c.json(result);
 });
 

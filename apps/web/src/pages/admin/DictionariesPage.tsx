@@ -1,11 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Plus } from "lucide-react";
-import { api } from "../../api/client";
-import { DictionaryType } from "../../api/types";
-import { Badge, Button, Card, Field, Input, Modal, PageHeader, StatusBadge, useUi } from "../../components/ui";
+import { Plus, Trash2 } from "lucide-react";
+import { api, errorMessage } from "../../api/client";
+import { DictionaryType, DictionaryValue } from "../../api/types";
+import { useAuth } from "../../context/AuthContext";
+import { Badge, Button, Card, Field, IconButton, Input, Modal, PageHeader, StatusBadge, useUi } from "../../components/ui";
 
 export function DictionariesPage() {
   const ui = useUi();
+  const { isAdmin } = useAuth();
   const [types, setTypes] = useState<DictionaryType[]>([]);
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -29,8 +31,8 @@ export function DictionariesPage() {
       setTypeName("");
       setFormOpen(false);
       load();
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось создать раздел", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось создать раздел"), "error");
     } finally {
       setSaving(false);
     }
@@ -42,15 +44,38 @@ export function DictionariesPage() {
     try {
       await api.post(`/dictionaries/${typeId}/values`, draft);
       setValueDrafts((prev) => ({ ...prev, [typeId]: { code: "", name: "" } }));
+      ui.toast(`Добавлено «${draft.name}»`, "success");
       load();
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось добавить значение", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось добавить значение"), "error");
     }
   }
 
-  async function toggleValue(id: string, isActive: boolean) {
-    await api.patch(`/dictionaries/values/${id}`, { isActive: !isActive });
-    load();
+  async function toggleValue(v: DictionaryValue) {
+    try {
+      await api.patch(`/dictionaries/values/${v.id}`, { isActive: !v.isActive });
+      ui.toast(v.isActive ? `«${v.name}» отключено — в формах больше не предлагается` : `«${v.name}» включено`, "success");
+      load();
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось изменить значение"), "error");
+    }
+  }
+
+  async function deleteValue(v: DictionaryValue) {
+    const confirmed = await ui.confirm({
+      title: `Удалить «${v.name}»?`,
+      message: "Операции, проекты и заявки, где оно использовалось, останутся без этого значения. Если хотите просто убрать его из форм — отключите вместо удаления.",
+      confirmLabel: "Удалить",
+      danger: true,
+    });
+    if (!confirmed) return;
+    try {
+      await api.delete(`/dictionaries/values/${v.id}`);
+      ui.toast("Значение удалено", "success");
+      load();
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось удалить значение"), "error");
+    }
   }
 
   return (
@@ -59,9 +84,11 @@ export function DictionariesPage() {
         title="Справочники"
         description="Категории операций, типы проектов и заявок. Значения используются в формах по всему приложению."
         actions={
-          <Button variant="primary" icon={Plus} onClick={() => setFormOpen(true)}>
-            Новый раздел
-          </Button>
+          isAdmin && (
+            <Button variant="primary" icon={Plus} onClick={() => setFormOpen(true)}>
+              Новый раздел
+            </Button>
+          )
         }
       />
 
@@ -85,10 +112,20 @@ export function DictionariesPage() {
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="truncate text-sm text-ink">{v.name}</span>
                   <span className="shrink-0 text-[11px] text-ink-subtle">{v.code}</span>
+                  {v.systemKey && <Badge tone="accent">служебное</Badge>}
                 </div>
-                <button onClick={() => toggleValue(v.id, v.isActive)} className="shrink-0 cursor-pointer">
-                  <StatusBadge label={v.isActive ? "Активно" : "Отключено"} tone={v.isActive ? "income" : "neutral"} />
-                </button>
+                <span className="flex shrink-0 items-center gap-1">
+                  <button
+                    onClick={() => toggleValue(v)}
+                    title={v.isActive ? "Отключить" : "Включить"}
+                    className="-my-1.5 inline-flex min-h-11 cursor-pointer items-center py-1.5 sm:min-h-9"
+                  >
+                    <StatusBadge label={v.isActive ? "Активно" : "Отключено"} tone={v.isActive ? "income" : "neutral"} />
+                  </button>
+                  {isAdmin && !v.systemKey && (
+                    <IconButton icon={Trash2} label="Удалить значение" onClick={() => deleteValue(v)} className="hover:text-expense" />
+                  )}
+                </span>
               </li>
             ))}
             {type.values.length === 0 && (

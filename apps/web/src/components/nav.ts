@@ -2,6 +2,7 @@ import {
   ArrowLeftRight,
   BookOpen,
   Clock,
+  History,
   FolderKanban,
   Inbox,
   LayoutDashboard,
@@ -70,6 +71,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { to: "/admin/dictionaries", label: "Справочники", icon: BookOpen, admin: true },
       { to: "/admin/users", label: "Пользователи", icon: UserCog, admin: true },
+      { to: "/admin/audit", label: "Журнал", icon: History, admin: true },
       // Not admin-gated: the page carries the personal theme setting, and the
       // demo-data controls inside it are hidden from non-admins instead.
       { to: "/admin/settings", label: "Настройки", icon: Settings },
@@ -101,6 +103,7 @@ const titles: Record<string, string> = {
   "/admin/dictionaries": "Справочники",
   "/admin/users": "Пользователи",
   "/admin/settings": "Настройки",
+  "/admin/audit": "Журнал изменений",
 };
 
 /** Page name for the phone's sticky top bar (detail routes fall back to the parent). */

@@ -1,15 +1,20 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { requireAuth } from "../../middleware/auth.middleware";
+import { AppError } from "../../utils/errors";
+import { audit } from "../audit/audit.service";
 import { getSalesPlanReport, getSalesPlans, saveSalesPlans } from "./salesPlans.service";
 import type { AppEnv } from "../../types/hono";
 
 export const salesPlansRouter = new Hono<AppEnv>();
-salesPlansRouter.use(requireAuth);
 
+/** No year → current year; a year outside the supported range is an error, not a silent substitute. */
 function parseYear(value: string | undefined): number {
+  if (value === undefined || value === "") return new Date().getFullYear();
   const year = Number(value);
-  return Number.isInteger(year) && year >= 2000 && year <= 2100 ? year : new Date().getFullYear();
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    throw new AppError(400, "Год должен быть в диапазоне 2000–2100");
+  }
+  return year;
 }
 
 salesPlansRouter.get("/", async (c) => {
@@ -47,5 +52,6 @@ salesPlansRouter.put("/", async (c) => {
     annual: body.annual,
     months: body.months,
   });
+  audit({ organizationId: auth.organizationId, userId: auth.userId, action: "update", entity: "salesPlan", summary: `Сохранены планы продаж на ${body.year} год` });
   return c.json(plans);
 });

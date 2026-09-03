@@ -1,7 +1,8 @@
 import { FormEvent, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Coins, Repeat, Split, Target, TrendingUp, Wand2 } from "lucide-react";
-import { api } from "../api/client";
+import { api, errorMessage } from "../api/client";
 import { SalesPlanReport } from "../api/types";
+import { useAuth } from "../context/AuthContext";
 import {
   Badge,
   Button,
@@ -46,8 +47,12 @@ function toAmount(value: string): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+const MIN_YEAR = 2000;
+const MAX_YEAR = 2100;
+
 export function SalesPlanPage() {
   const ui = useUi();
+  const { canEdit } = useAuth();
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
 
@@ -115,8 +120,8 @@ export function SalesPlanPage() {
       ui.toast(`Планы на ${year} год сохранены`, "success");
       setFormOpen(false);
       load(year);
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось сохранить планы", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось сохранить планы"), "error");
     } finally {
       setSaving(false);
     }
@@ -205,13 +210,15 @@ export function SalesPlanPage() {
         actions={
           <>
             <div className="flex items-center gap-1 rounded-lg border border-line bg-raised px-1">
-              <IconButton icon={ChevronLeft} label="Предыдущий год" onClick={() => setYear(year - 1)} />
+              <IconButton icon={ChevronLeft} label="Предыдущий год" disabled={year <= MIN_YEAR} onClick={() => setYear(year - 1)} />
               <span className="min-w-12 text-center text-sm font-medium text-ink tnum">{year}</span>
-              <IconButton icon={ChevronRight} label="Следующий год" onClick={() => setYear(year + 1)} />
+              <IconButton icon={ChevronRight} label="Следующий год" disabled={year >= MAX_YEAR} onClick={() => setYear(year + 1)} />
             </div>
-            <Button variant="primary" icon={Target} onClick={openForm}>
-              Настроить планы
-            </Button>
+            {canEdit && (
+              <Button variant="primary" icon={Target} onClick={openForm}>
+                Настроить планы
+              </Button>
+            )}
           </>
         }
       />

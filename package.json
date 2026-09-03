@@ -11,9 +11,22 @@
     "build:api": "npm run build --workspace apps/api",
     "build:web": "npm run build --workspace apps/web",
     "prisma:migrate": "npm run prisma:migrate --workspace apps/api",
-    "prisma:seed": "npm run prisma:seed --workspace apps/api"
+    "prisma:seed": "npm run prisma:seed --workspace apps/api",
+    "lint": "eslint apps/api/src apps/web/src",
+    "format": "prettier --write \"apps/**/src/**/*.{ts,tsx,css}\"",
+    "format:check": "prettier --check \"apps/**/src/**/*.{ts,tsx,css}\"",
+    "test": "vitest run --root apps/api",
+    "typecheck": "npx tsc -p apps/api/tsconfig.json --noEmit && npx tsc -b apps/web"
   },
   "overrides": {
-    "deepmerge-ts": "^8.0.2"
+    "deepmerge-ts": "^8.0.2",
+    "mysql2": "^3.24.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.0",
+    "eslint": "^9.30.0",
+    "typescript-eslint": "^8.38.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "prettier": "^3.6.2"
   }
 }

@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Package, Pencil, Plus, Trash2 } from "lucide-react";
-import { api } from "../api/client";
+import { api, errorMessage } from "../api/client";
 import { DictionaryType, LicenseProduct } from "../api/types";
+import { useAuth } from "../context/AuthContext";
 import {
   Badge,
   Button,
@@ -41,6 +42,7 @@ function termLabel(p: LicenseProduct): string {
 
 export function ProductsPage() {
   const ui = useUi();
+  const { isAdmin } = useAuth();
   const [products, setProducts] = useState<LicenseProduct[]>([]);
   const [categories, setCategories] = useState<DictionaryType | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -110,16 +112,21 @@ export function ProductsPage() {
       setFormOpen(false);
       setEditingId(null);
       load();
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось сохранить продукт", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось сохранить продукт"), "error");
     } finally {
       setSaving(false);
     }
   }
 
   async function toggleActive(id: string, isActive: boolean) {
-    await api.patch(`/license-products/${id}`, { isActive: !isActive });
-    load();
+    try {
+      await api.patch(`/license-products/${id}`, { isActive: !isActive });
+      ui.toast(isActive ? "Продукт отключён — в новых продажах не предлагается" : "Продукт включён", "success");
+      load();
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось изменить продукт"), "error");
+    }
   }
 
   async function handleDelete(p: LicenseProduct) {
@@ -134,8 +141,8 @@ export function ProductsPage() {
       await api.delete(`/license-products/${p.id}`);
       ui.toast("Продукт удалён", "success");
       load();
-    } catch (err: any) {
-      ui.toast(err.response?.data?.error ?? "Не удалось удалить продукт", "error");
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось удалить продукт"), "error");
     }
   }
 
@@ -174,22 +181,30 @@ export function ProductsPage() {
       key: "active",
       header: "Активен",
       render: (p) => (
-        <button onClick={() => toggleActive(p.id, p.isActive)} className="cursor-pointer">
+        <button
+          onClick={() => toggleActive(p.id, p.isActive)}
+          disabled={!isAdmin}
+          className="-my-1.5 inline-flex min-h-9 cursor-pointer items-center py-1.5 disabled:cursor-default"
+        >
           <StatusBadge label={p.isActive ? "Да" : "Нет"} tone={p.isActive ? "income" : "neutral"} />
         </button>
       ),
     },
-    {
-      key: "actions",
-      header: "",
-      align: "right",
-      render: (p) => (
-        <div className="flex items-center justify-end gap-1">
-          <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(p)} />
-          <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(p)} className="hover:text-expense" />
-        </div>
-      ),
-    },
+    ...(isAdmin
+      ? [
+          {
+            key: "actions",
+            header: "",
+            align: "right" as const,
+            render: (p: LicenseProduct) => (
+              <div className="flex items-center justify-end gap-1">
+                <IconButton icon={Pencil} label="Редактировать" onClick={() => startEdit(p)} />
+                <IconButton icon={Trash2} label="Удалить" onClick={() => handleDelete(p)} className="hover:text-expense" />
+              </div>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -198,9 +213,11 @@ export function ProductsPage() {
         title="Продукты"
         description="Товарная матрица: цена, срок, доля вендора и налогообложение. Эти значения подставляются при создании продажи или подписки."
         actions={
-          <Button variant="primary" icon={Plus} onClick={startCreate}>
-            Новый продукт
-          </Button>
+          isAdmin && (
+            <Button variant="primary" icon={Plus} onClick={startCreate}>
+              Новый продукт
+            </Button>
+          )
         }
       />
 
@@ -223,17 +240,19 @@ export function ProductsPage() {
                 </>
               }
               actions={
-                <>
-                  <Button size="sm" variant="ghost" onClick={() => toggleActive(p.id, p.isActive)}>
-                    {p.isActive ? "Отключить" : "Включить"}
-                  </Button>
-                  <Button size="sm" variant="ghost" icon={Pencil} onClick={() => startEdit(p)}>
-                    Изменить
-                  </Button>
-                  <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(p)}>
-                    Удалить
-                  </Button>
-                </>
+                isAdmin && (
+                  <>
+                    <Button size="sm" variant="ghost" onClick={() => toggleActive(p.id, p.isActive)}>
+                      {p.isActive ? "Отключить" : "Включить"}
+                    </Button>
+                    <Button size="sm" variant="ghost" icon={Pencil} onClick={() => startEdit(p)}>
+                      Изменить
+                    </Button>
+                    <Button size="sm" variant="danger" icon={Trash2} onClick={() => handleDelete(p)}>
+                      Удалить
+                    </Button>
+                  </>
+                )
               }
             />
           )}
@@ -243,9 +262,11 @@ export function ProductsPage() {
               title="Продуктов пока нет"
               description="Добавьте лицензии и работы, которые вы продаёте — они станут шаблонами для продаж и подписок."
               action={
-                <Button variant="primary" icon={Plus} onClick={startCreate}>
-                  Новый продукт
-                </Button>
+                isAdmin ? (
+                  <Button variant="primary" icon={Plus} onClick={startCreate}>
+                    Новый продукт
+                  </Button>
+                ) : undefined
               }
             />
           }

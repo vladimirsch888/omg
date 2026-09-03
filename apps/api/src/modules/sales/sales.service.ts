@@ -1,12 +1,6 @@
 import { prisma } from "../../prisma";
 import { computeWaterfall } from "../finance/waterfall";
-
-async function getLicenseCostCategoryId(organizationId: string): Promise<string | null> {
-  const value = await prisma.dictionaryValue.findFirst({
-    where: { organizationId, code: "license_cost", dictionaryType: { code: "operation_category" } },
-  });
-  return value?.id ?? null;
-}
+import { findVendorCostCategoryId } from "../../utils/ownership";
 
 interface RecordSaleInput {
   organizationId: string;
@@ -71,7 +65,7 @@ export async function recordSale(input: RecordSaleInput) {
 
   let expenseOperation = null;
   if (input.vendorSharePercent > 0) {
-    const vendorCategoryId = await getLicenseCostCategoryId(input.organizationId);
+    const vendorCategoryId = await findVendorCostCategoryId(input.organizationId);
     const { vendorCost } = computeWaterfall(input.amount, input.vendorSharePercent, input.taxable);
     expenseOperation = await prisma.operation.create({
       data: {
@@ -172,7 +166,7 @@ export async function updateSale(input: UpdateSaleInput) {
         },
       });
     } else {
-      const vendorCategoryId = await getLicenseCostCategoryId(input.organizationId);
+      const vendorCategoryId = await findVendorCostCategoryId(input.organizationId);
       expenseOperation = await prisma.operation.create({
         data: {
           organizationId: input.organizationId,

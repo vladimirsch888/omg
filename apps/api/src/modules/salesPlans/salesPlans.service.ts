@@ -1,5 +1,6 @@
 import { prisma } from "../../prisma";
 import { computeWaterfall } from "../finance/waterfall";
+import { addMonthsClamped } from "../../utils/dates";
 
 /**
  * Where a rouble of net profit came from. The split the client asked to see
@@ -142,7 +143,7 @@ export async function getSalesPlanReport(organizationId: string, year: number): 
     getCategoryKinds(organizationId),
     prisma.subscription.findMany({
       where: { organizationId, status: "ACTIVE", nextBillingDate: { lt: yearEnd } },
-      select: { price: true, durationMonths: true, nextBillingDate: true },
+      select: { price: true, durationMonths: true, nextBillingDate: true, startDate: true },
     }),
   ]);
 
@@ -219,7 +220,7 @@ export async function getSalesPlanReport(organizationId: string, year: number): 
  */
 function addSubscriptionForecast(
   months: SalesPlanMonth[],
-  subscriptions: { price: unknown; durationMonths: number; nextBillingDate: Date }[],
+  subscriptions: { price: unknown; durationMonths: number; nextBillingDate: Date; startDate: Date }[],
   year: number
 ): number {
   const now = new Date();
@@ -232,7 +233,8 @@ function addSubscriptionForecast(
     const duration = subscription.durationMonths;
     if (!(price > 0) || !(duration > 0)) continue;
 
-    const due = new Date(subscription.nextBillingDate);
+    let due = new Date(subscription.nextBillingDate);
+    const anchorDay = subscription.startDate.getDate();
     // Guard against a pathological schedule producing an endless walk.
     for (let period = 0; period < 24 && due.getFullYear() <= year; period++) {
       if (due.getFullYear() === year) {
@@ -242,7 +244,7 @@ function addSubscriptionForecast(
           total += price;
         }
       }
-      due.setMonth(due.getMonth() + duration);
+      due = addMonthsClamped(due, duration, anchorDay);
       if (due.getFullYear() > year) break;
     }
   }
