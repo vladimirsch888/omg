@@ -119,7 +119,7 @@ Express+Prisma+Rust-engine.
 `catalogKey` — ссылка на строку встроенного каталога вендора, если продукт
 импортирован из него (см. «Каталог вендоров» ниже), у **Subscription** — `seats` (мест),
 `expiresAt` (дата окончания у вендора, если отличается от даты платежа),
-`accountRef` (аккаунт у вендора), `cancelledAt` / `pausedAt` и причина
+`accountRef` (канал у вендора — только название мессенджера), `cancelledAt` / `pausedAt` и причина
 отмены (справочник `cancel_reason`) с комментарием. У **Operation** с
 `taxPayment = true` есть `taxKind` и `taxPeriod` — какое обязательство
 календаря закрывает платёж.

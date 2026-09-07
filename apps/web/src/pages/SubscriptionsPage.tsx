@@ -44,7 +44,7 @@ import {
   useUi,
   type BadgeTone,
 } from "../components/ui";
-import { dateInputToIso, downloadFile, formatDate, formatMoney, toDateInputValue, todayInput } from "../utils/format";
+import { dateInputToIso, downloadFile, formatDate, formatMoney, formatSeats, toDateInputValue, todayInput } from "../utils/format";
 
 const statusLabel: Record<Subscription["status"], string> = {
   ACTIVE: "Активна",
@@ -104,6 +104,9 @@ export function SubscriptionsPage() {
   const [accountRef, setAccountRef] = useState("");
   const [notes, setNotes] = useState("");
   const [cancelReasons, setCancelReasons] = useState<DictionaryValue[]>([]);
+  // The catalog import puts a hundred products in the list, so the form
+  // narrows them by vendor before the product select.
+  const [productVendor, setProductVendor] = useState("");
   // Cancelling asks why — the retention report is only as good as these answers.
   const [cancelling, setCancelling] = useState<Subscription | null>(null);
   const [cancelReasonId, setCancelReasonId] = useState("");
@@ -137,6 +140,22 @@ export function SubscriptionsPage() {
   const projectsForClient = projects.filter((p) => p.clientId === clientId);
   const selectedProduct = products.find((p) => p.id === licenseProductId);
 
+  const productVendors = [...new Map(products.filter((p) => p.vendorValue).map((p) => [p.vendorValue!.id, p.vendorValue!.name])).entries()];
+  const productsForVendor = productVendor
+    ? products.filter((p) => (productVendor === "none" ? !p.vendorValueId : p.vendorValueId === productVendor))
+    : products;
+  /** Products grouped into <optgroup>s by vendor, vendors first, in name order. */
+  const productGroups = [...productsForVendor.reduce((map, p) => {
+    const key = p.vendorValue?.name ?? "Без вендора";
+    return map.set(key, [...(map.get(key) ?? []), p]);
+  }, new Map<string, LicenseProduct[]>())].sort((a, b) => (a[0] === "Без вендора" ? 1 : b[0] === "Без вендора" ? -1 : a[0].localeCompare(b[0], "ru")));
+
+  /** «Wazzup MAX PRO» inside the Wazzup group reads as «MAX PRO». */
+  function optionLabel(p: LicenseProduct, vendorName: string): string {
+    const short = vendorName !== "Без вендора" && p.name.startsWith(`${vendorName} `) ? p.name.slice(vendorName.length + 1) : p.name;
+    return `${short} — ${formatMoney(p.defaultPrice)} за ${p.defaultDurationMonths} мес.`;
+  }
+
   function onSelectProduct(id: string) {
     setLicenseProductId(id);
     const product = products.find((p) => p.id === id);
@@ -151,6 +170,7 @@ export function SubscriptionsPage() {
   function startCreate() {
     setClientId("");
     setProjectId("");
+    setProductVendor("");
     setLicenseProductId("");
     setPrice("");
     setDurationMonths("");
@@ -391,7 +411,8 @@ export function SubscriptionsPage() {
       render: (s) => (
         <span className="flex flex-wrap items-center gap-1.5 text-ink-muted">
           {s.licenseProduct?.name}
-          {s.seats != null && <Badge>{s.seats} мест</Badge>}
+          {s.accountRef && <Badge>{s.accountRef}</Badge>}
+          {s.seats != null && <Badge>{formatSeats(s.seats)}</Badge>}
           {s.licenseProduct?.tariffValue && <Badge tone="accent">{s.licenseProduct.tariffValue.name}</Badge>}
           {!s.taxable && <Badge tone="reserve">на карту</Badge>}
         </span>
@@ -616,6 +637,7 @@ export function SubscriptionsPage() {
                   {invoiceBadge(s)}
                   {!s.taxable && <Badge tone="reserve">на карту</Badge>}
                   <MetaItem label="Срок">{s.durationMonths} мес.</MetaItem>
+                  {s.accountRef && <Badge>{s.accountRef}</Badge>}
                   {s.seats != null && <MetaItem label="Мест">{s.seats}</MetaItem>}
                   {s.expiresAt && <MetaItem label="Лицензия до">{formatDate(s.expiresAt)}</MetaItem>}
                 </>
@@ -731,13 +753,34 @@ export function SubscriptionsPage() {
                   ))}
                 </Select>
               </Field>
-              <Field label="Продукт">
-                <Select value={licenseProductId} onChange={(e) => onSelectProduct(e.target.value)} required>
-                  <option value="">Выберите продукт…</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
+              <Field label="Вендор" hint="Сужает список продуктов ниже">
+                <Select
+                  value={productVendor}
+                  onChange={(e) => {
+                    setProductVendor(e.target.value);
+                    setLicenseProductId("");
+                  }}
+                >
+                  <option value="">Все вендоры</option>
+                  {productVendors.map(([id, name]) => (
+                    <option key={id} value={id}>
+                      {name}
                     </option>
+                  ))}
+                  <option value="none">Без вендора</option>
+                </Select>
+              </Field>
+              <Field label="Продукт (тариф)" className="sm:col-span-2">
+                <Select value={licenseProductId} onChange={(e) => onSelectProduct(e.target.value)} required>
+                  <option value="">Выберите тариф…</option>
+                  {productGroups.map(([vendorName, items]) => (
+                    <optgroup key={vendorName} label={vendorName}>
+                      {items.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {optionLabel(p, vendorName)}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </Select>
               </Field>
@@ -802,8 +845,11 @@ export function SubscriptionsPage() {
           <Field label="Лицензия у вендора до" hint="Если отличается от даты платежа — например, оплачено с запасом">
             <Input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
           </Field>
-          <Field label="Аккаунт у вендора" hint="Поддомен amoCRM, номер Wazzup и т.п.">
-            <Input value={accountRef} onChange={(e) => setAccountRef(e.target.value)} maxLength={200} />
+          <Field
+            label="Канал у вендора"
+            hint="Только мессенджер: MAX, WhatsApp, Telegram. Номера, города и порядковые номера канала не нужны"
+          >
+            <Input value={accountRef} onChange={(e) => setAccountRef(e.target.value)} maxLength={200} placeholder="MAX" />
           </Field>
           <Field label="Заметка">
             <Input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} />
@@ -815,8 +861,11 @@ export function SubscriptionsPage() {
 
           {!editingId && selectedProduct && (
             <p className="text-xs text-ink-subtle sm:col-span-2">
-              По умолчанию у продукта: {formatMoney(selectedProduct.defaultPrice)}, {selectedProduct.defaultDurationMonths} мес.,
-              вендору {String(selectedProduct.defaultVendorSharePercent)}%
+              Выбрано: {selectedProduct.name}
+              {selectedProduct.tariffValue ? ` · тариф ${selectedProduct.tariffValue.name}` : ""}. По умолчанию{" "}
+              {formatMoney(selectedProduct.defaultPrice)} за {selectedProduct.defaultDurationMonths} мес., вендору{" "}
+              {String(selectedProduct.defaultVendorSharePercent)}%
+              {selectedProduct.pricePerSeat != null ? `, каталог ${formatMoney(selectedProduct.pricePerSeat)} за место в месяц` : ""}
             </p>
           )}
         </form>

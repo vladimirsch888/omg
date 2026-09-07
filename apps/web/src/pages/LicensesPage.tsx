@@ -24,7 +24,7 @@ import {
   useUi,
   type BadgeTone,
 } from "../components/ui";
-import { formatDate, formatMoney } from "../utils/format";
+import { formatDate, formatMoney, formatSeats } from "../utils/format";
 
 const statusLabel: Record<LicenseRow["status"], string> = {
   ACTIVE: "Активна",
@@ -262,7 +262,7 @@ export function LicensesPage() {
                   <div className="flex items-center justify-between gap-3 text-sm">
                     <span className="text-ink">{v.vendor}</span>
                     <span className="shrink-0 text-ink-muted tnum">
-                      {v.licenses} лиц. · {v.seats} мест · <span className="font-medium text-ink">{formatMoney(v.monthlyRecurring)}/мес</span>
+                      {v.licenses} лиц. · {formatSeats(v.seats)} · <span className="font-medium text-ink">{formatMoney(v.monthlyRecurring)}/мес</span>
                     </span>
                   </div>
                   <InlineBar value={v.monthlyRecurring} max={maxVendorMrr} tone="income" />
@@ -274,7 +274,7 @@ export function LicensesPage() {
             <div className="mt-4 flex flex-wrap gap-1.5 border-t border-line pt-3">
               {data.byTariff.map((t) => (
                 <Badge key={t.tariff}>
-                  {t.tariff}: {t.licenses} лиц., {t.seats} мест
+                  {t.tariff}: {t.licenses} лиц., {formatSeats(t.seats)}
                 </Badge>
               ))}
             </div>

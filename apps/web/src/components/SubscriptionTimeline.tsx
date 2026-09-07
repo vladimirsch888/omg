@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { FileCheck2 } from "lucide-react";
 import type { Subscription } from "../api/types";
-import { formatDate, formatMoney } from "../utils/format";
+import { formatDate, formatMoney, formatSeats } from "../utils/format";
 
 /** Timeline row: one subscription, its current period and where it ends. */
 interface Segment {
@@ -141,7 +141,7 @@ export function SubscriptionTimeline({ subscriptions }: { subscriptions: Subscri
             const right = pos(seg.end);
             const width = Math.max(0.6, right - left);
             const endBeyond = seg.end >= windowEnd;
-            const title = `${seg.client} — ${seg.product}${seg.seats ? `, ${seg.seats} мест` : ""}: до ${formatDate(seg.end.toISOString())} (${
+            const title = `${seg.client} — ${seg.product}${seg.seats ? `, ${formatSeats(seg.seats)}` : ""}: до ${formatDate(seg.end.toISOString())} (${
               seg.daysLeft < 0 ? `просрочено ${Math.abs(seg.daysLeft)} дн.` : `${seg.daysLeft} дн.`
             }), ${formatMoney(seg.price)}`;
             return (
