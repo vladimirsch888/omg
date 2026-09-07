@@ -3,13 +3,14 @@ import { VENDOR_CATALOG, findVendor, planProducts } from "../src/modules/vendorC
 
 const wazzup = findVendor("wazzup")!;
 const nova = findVendor("nova")!;
+const amocrm = findVendor("amocrm")!;
 
 describe("vendor catalog — Wazzup", () => {
   it("carries all eight channels from the price page", () => {
     const groups = new Set(wazzup.items.map((i) => i.group));
     expect([...groups]).toEqual(["WhatsApp", "WABA", "Telegram Personal", "Telegram Bot", "MAX", "ВКонтакте", "Instagram", "Авито"]);
     expect(wazzup.items).toHaveLength(21);
-    expect(VENDOR_CATALOG.map((v) => v.code)).toEqual(["wazzup", "nova"]);
+    expect(VENDOR_CATALOG.map((v) => v.code)).toEqual(["amocrm", "wazzup", "nova"]);
   });
 
   it("prices a yearly product with the vendor's discount, rounded to the rouble", () => {
@@ -74,5 +75,62 @@ describe("vendor catalog — NOVA", () => {
       const keys = v.items.map((i) => i.key);
       expect(new Set(keys).size).toBe(keys.length);
     }
+  });
+});
+
+describe("vendor catalog — amoCRM", () => {
+  // Intl puts a non-breaking space in a four-digit price.
+  const nbsp = "\u00a0";
+
+  it("keeps only the per-user plans, without Enterprise, Микро-Бизнес and Старт-ап", () => {
+    expect(amocrm.items).toHaveLength(8);
+    const names = amocrm.items.map((i) => i.name);
+    expect(names).toEqual([
+      "amoCRM Базовый (599)",
+      `amoCRM Расширенный (1${nbsp}299)`,
+      `amoCRM Профессиональный (1${nbsp}799)`,
+      `amoCRM Расширенный (1${nbsp}099)`,
+      `amoCRM Профессиональный (1${nbsp}599)`,
+      "amoCRM Базовый (499)",
+      "amoCRM Расширенный (999)",
+      `amoCRM Профессиональный (1${nbsp}499)`,
+    ]);
+    for (const banned of ["Enterprise", "Микро", "Старт"]) {
+      expect(names.some((n) => n.includes(banned))).toBe(false);
+    }
+  });
+
+  it("prices a term as the monthly rate per user times the months", () => {
+    const planned = planProducts(amocrm, ["plan:advanced_1299"], [6, 12, 24]);
+    expect(planned.map((p) => [p.durationMonths, p.price])).toEqual([
+      [6, 7794],
+      [12, 15588],
+      [24, 31176],
+    ]);
+    expect(planned[1].name).toBe(`amoCRM Расширенный (1${nbsp}299), 12 мес.`);
+    expect(planned.every((p) => p.pricePerSeat === 1299)).toBe(true);
+    expect(planned[0].tariffCode).toBe("advanced");
+  });
+
+  it("separates the same tariff at different prices", () => {
+    const advanced = amocrm.items.filter((i) => i.tariffCode === "advanced");
+    expect(advanced.map((i) => i.key)).toEqual(["plan:advanced_1299", "plan:advanced_1099", "plan:advanced_999"]);
+    expect(new Set(amocrm.items.map((i) => i.key)).size).toBe(amocrm.items.length);
+  });
+
+  it("recommends the 2026 line-up only and files the rest under previous prices", () => {
+    const current = amocrm.items.filter((i) => i.recommended);
+    expect(current.map((i) => i.name)).toEqual(["amoCRM Базовый (599)", `amoCRM Расширенный (1${nbsp}299)`, `amoCRM Профессиональный (1${nbsp}799)`]);
+    expect(current.every((i) => i.group === "Действующие тарифы (с 01.09.2026)")).toBe(true);
+    expect(current[0].features).toEqual(["599 ₽ за пользователя в месяц, без НДС", "цена действует с 01.09.2026"]);
+    const basic = amocrm.items.find((i) => i.key === "plan:basic_499")!;
+    expect(basic.recommended).toBe(false);
+    expect(basic.group).toBe("Прежние цены (до 01.09.2024)");
+    expect(basic.features).toEqual([
+      "499 ₽ за пользователя в месяц, без НДС",
+      `5${nbsp}000 контактов/компаний, 500 открытых сделок`,
+      "100 МБ для документов, 100 своих полей",
+      "цена действует с 01.06.2021 до 01.09.2024",
+    ]);
   });
 });

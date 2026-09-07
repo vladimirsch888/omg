@@ -198,6 +198,8 @@ export interface CatalogVendor {
     prices: { months: number; price: number }[];
     pricePerSeat: number | null;
     features: string[];
+    /** Ticked by default in the import dialog. */
+    recommended: boolean;
     imported: { months: number; id: string; name: string; price: number; isActive: boolean }[];
   }[];
 }

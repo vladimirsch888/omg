@@ -35,13 +35,14 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
   }, [open]);
 
   /**
-   * Switching vendor resets the selection: paid rows that aren't in
-   * Продукты yet get checked (free and usage-billed ones stay off — they
-   * are rarely sold as products), and the vendor's usual term is on.
+   * Switching vendor resets the selection to the rows worth selling that
+   * aren't in Продукты yet — free and token-billed widgets, and amoCRM
+   * prices that are no longer current, stay unchecked — plus the vendor's
+   * usual term.
    */
   function selectVendor(v: CatalogVendor) {
     setVendorCode(v.code);
-    setSelected(new Set(v.items.filter((i) => i.kind === "paid" && i.imported.length === 0).map((i) => i.key)));
+    setSelected(new Set(v.items.filter((i) => i.recommended && i.imported.length === 0).map((i) => i.key)));
     setPeriods([v.defaultMonths]);
   }
 
@@ -52,8 +53,11 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
     for (const item of vendor.items) map.set(item.group, [...(map.get(item.group) ?? []), item]);
     // Paid rows first: those are what gets imported; free and usage-billed
     // sections sit underneath for the rare case they're wanted.
-    const rank = { paid: 0, free: 1, usage: 2 } as const;
-    return [...map].sort((a, b) => rank[a[1][0].kind] - rank[b[1][0].kind]);
+    // What's for sale first: recommended rows, then paid-but-archived,
+    // then free and token-billed sections.
+    const rank = (items: CatalogVendor["items"]) =>
+      items[0].recommended ? 0 : items[0].kind === "paid" ? 1 : items[0].kind === "free" ? 2 : 3;
+    return [...map].sort((a, b) => rank(a[1]) - rank(b[1]));
   }, [vendor]);
 
   const toggle = (key: string) =>
@@ -106,7 +110,7 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
       open={open}
       onClose={onClose}
       title="Каталог вендоров"
-      description="Прайс-листы вендоров зашиты в систему. Отметьте тарифы — они появятся в «Продуктах» с вендором, тарифом, ценой за канал и описанием. Повторный импорт обновит цены уже созданных продуктов."
+      description="Прайс-листы вендоров зашиты в систему. Отметьте строки — они появятся в «Продуктах» с вендором, тарифом, ценой за выбранный срок и описанием. Повторный импорт обновит цены уже созданных продуктов."
       size="lg"
       footer={
         <>

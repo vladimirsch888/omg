@@ -1,3 +1,4 @@
+import { AMOCRM_CURRENT_FROM, AMOCRM_PLANS, AMOCRM_TERMS } from "./amocrm";
 import { NOVA_WIDGETS } from "./nova";
 import { WAZZUP_DISCOUNTS, WAZZUP_TARIFFS, type WazzupTariff } from "./wazzup";
 
@@ -24,6 +25,12 @@ export interface CatalogItem {
   pricePerSeat: number | null;
   /** Human-readable inclusions, joined into the product description. */
   features: string[];
+  /**
+   * Ticked by default in the import dialog. False for rows that exist for
+   * reference rather than for selling — an amoCRM price that is no longer
+   * current, say.
+   */
+  recommended: boolean;
 }
 
 export interface CatalogVendor {
@@ -80,6 +87,7 @@ const wazzup: CatalogVendor = {
     prices: wazzupPrices(t.pricePerMonth),
     pricePerSeat: t.pricePerMonth,
     features: wazzupFeatures(t),
+    recommended: t.pricePerMonth > 0,
   })),
 };
 
@@ -112,10 +120,49 @@ const nova: CatalogVendor = {
       w.kind === "free" ? "бесплатный виджет" : w.kind === "usage" ? "оплата по токенам" : "виджет для amoCRM",
       ...(w.renewalForReview ? ["продление за отзыв"] : []),
     ],
+    recommended: w.kind === "paid",
   })),
 };
 
-export const VENDOR_CATALOG: CatalogVendor[] = [wazzup, nova];
+// ---------------------------------------------------------------- amoCRM
+
+const ru = (n: number) => new Intl.NumberFormat("ru-RU").format(n);
+
+const amocrm: CatalogVendor = {
+  code: "amocrm",
+  name: "amoCRM",
+  periods: AMOCRM_TERMS,
+  defaultMonths: 12,
+  categoryCode: "license_amocrm",
+  items: AMOCRM_PLANS.map((p) => {
+    const current = p.validFrom === AMOCRM_CURRENT_FROM;
+    return {
+      // The price is part of the identity: amoCRM reuses a tariff name at
+      // several price points, and the owner names the deal by the price.
+      key: `plan:${p.code}_${p.pricePerUserMonth}`,
+      name: `amoCRM ${p.title} (${ru(p.pricePerUserMonth)})`,
+      group: current ? `Действующие тарифы (с ${p.validFrom})` : `Прежние цены (до ${p.validTo ?? p.validFrom})`,
+      tariffCode: p.code,
+      tariffName: p.title,
+      kind: "paid" as const,
+      prices: AMOCRM_TERMS.map((months) => ({ months, price: p.pricePerUserMonth * months })),
+      pricePerSeat: p.pricePerUserMonth,
+      features: [
+        `${ru(p.pricePerUserMonth)} ₽ за пользователя в месяц, без НДС`,
+        ...(p.limits
+          ? [
+              `${ru(p.limits.contacts)} контактов/компаний, ${ru(p.limits.openDeals)} открытых сделок`,
+              `${p.limits.storageMb} МБ для документов, ${p.limits.customFields} своих полей`,
+            ]
+          : []),
+        p.validTo ? `цена действует с ${p.validFrom} до ${p.validTo}` : `цена действует с ${p.validFrom}`,
+      ],
+      recommended: current,
+    };
+  }),
+};
+
+export const VENDOR_CATALOG: CatalogVendor[] = [amocrm, wazzup, nova];
 
 export function findVendor(code: string): CatalogVendor | undefined {
   return VENDOR_CATALOG.find((v) => v.code === code);
@@ -127,7 +174,7 @@ export interface PlannedProduct {
   tariffCode: string;
   tariffName: string;
   durationMonths: number;
-  /** Price for the whole term. */
+  /** Price for the whole term (for one user/channel where the vendor bills per unit). */
   price: number;
   pricePerSeat: number | null;
   description: string;
