@@ -177,6 +177,31 @@ export interface LicenseProduct {
   tariffValue?: DictionaryValue | null;
   /** Catalog price per seat; lets the portfolio spot deals priced off-list. */
   pricePerSeat?: string | number | null;
+  description?: string | null;
+  /** Set when the product was imported from the built-in vendor catalog. */
+  catalogKey?: string | null;
+}
+
+export interface CatalogVendor {
+  code: string;
+  name: string;
+  discounts: { months: number; percent: number }[];
+  items: {
+    key: string;
+    name: string;
+    group: string;
+    tariffCode: string;
+    tariffName: string;
+    pricePerMonth: number;
+    features: string[];
+    imported: { months: number; id: string; name: string; price: number; isActive: boolean }[];
+  }[];
+}
+
+export interface CatalogImportResult {
+  created: number;
+  updated: number;
+  products: { id: string; name: string; action: "created" | "updated" }[];
 }
 
 export interface Subscription {

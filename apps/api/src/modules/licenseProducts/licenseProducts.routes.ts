@@ -33,8 +33,10 @@ const productSchema = z.object({
   vendorValueId: z.string().uuid().optional().nullable(),
   tariffValueId: z.string().uuid().optional().nullable(),
   // Price of one seat when the vendor bills per seat; null = flat price.
-  pricePerSeat: z.number().positive().max(1_000_000_000).optional().nullable(),
-  defaultPrice: z.number().positive().max(1_000_000_000),
+  pricePerSeat: z.number().min(0).max(1_000_000_000).optional().nullable(),
+  // 0 is legal: vendors have free channels (Telegram Bot FREE) worth tracking.
+  defaultPrice: z.number().min(0).max(1_000_000_000),
+  description: z.string().trim().max(1000).optional().nullable(),
   defaultDurationMonths: z.number().int().positive().max(120).optional().nullable(),
   // Estimated execution time in working days — only meaningful for WORK.
   defaultWorkDays: z.number().int().positive().max(1000).optional().nullable(),

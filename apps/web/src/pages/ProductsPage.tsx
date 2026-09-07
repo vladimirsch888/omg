@@ -1,8 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Package, Pencil, Plus, Trash2 } from "lucide-react";
+import { BookOpen, Package, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, errorMessage } from "../api/client";
 import { DictionaryType, LicenseProduct } from "../api/types";
 import { useAuth } from "../context/AuthContext";
+import { VendorCatalogModal } from "../components/VendorCatalogModal";
 import {
   Badge,
   Button,
@@ -36,6 +37,7 @@ const emptyForm = {
   vendorValueId: "",
   tariffValueId: "",
   pricePerSeat: "",
+  description: "",
 };
 
 function termLabel(p: LicenseProduct): string {
@@ -54,6 +56,7 @@ export function ProductsPage() {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [catalogOpen, setCatalogOpen] = useState(false);
 
   function load() {
     api
@@ -89,6 +92,7 @@ export function ProductsPage() {
       vendorValueId: p.vendorValueId ?? "",
       tariffValueId: p.tariffValueId ?? "",
       pricePerSeat: p.pricePerSeat != null ? String(p.pricePerSeat) : "",
+      description: p.description ?? "",
     });
     setEditingId(p.id);
     setFormOpen(true);
@@ -113,6 +117,7 @@ export function ProductsPage() {
       vendorValueId: form.type === "LICENSE" && form.vendorValueId ? form.vendorValueId : null,
       tariffValueId: form.type === "LICENSE" && form.tariffValueId ? form.tariffValueId : null,
       pricePerSeat: form.type === "LICENSE" && form.pricePerSeat ? Number(form.pricePerSeat) : null,
+      description: form.description.trim() || null,
     };
     try {
       if (editingId) {
@@ -164,9 +169,12 @@ export function ProductsPage() {
       key: "name",
       header: "Название",
       render: (p) => (
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-ink">{p.name}</span>
-          <Badge tone={p.type === "WORK" ? "accent" : "neutral"}>{p.type === "WORK" ? "работа" : "лицензия"}</Badge>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-ink">{p.name}</span>
+            <Badge tone={p.type === "WORK" ? "accent" : "neutral"}>{p.type === "WORK" ? "работа" : "лицензия"}</Badge>
+          </div>
+          {p.description && <span className="line-clamp-2 text-xs text-ink-subtle">{p.description}</span>}
         </div>
       ),
     },
@@ -246,12 +254,19 @@ export function ProductsPage() {
         description="Товарная матрица: цена, срок, доля вендора и налогообложение. Эти значения подставляются при создании продажи или подписки."
         actions={
           isAdmin && (
-            <Button variant="primary" icon={Plus} onClick={startCreate}>
-              Новый продукт
-            </Button>
+            <>
+              <Button variant="secondary" icon={BookOpen} onClick={() => setCatalogOpen(true)}>
+                Каталог вендоров
+              </Button>
+              <Button variant="primary" icon={Plus} onClick={startCreate}>
+                Новый продукт
+              </Button>
+            </>
           )
         }
       />
+
+      <VendorCatalogModal open={catalogOpen} onClose={() => setCatalogOpen(false)} onImported={load} />
 
       <ListCard>
         <DataTable
@@ -261,7 +276,7 @@ export function ProductsPage() {
           renderCard={(p) => (
             <RowCard
               title={p.name}
-              subtitle={p.categoryValue?.name}
+              subtitle={p.description ?? p.categoryValue?.name}
               value={formatMoney(p.defaultPrice)}
               meta={
                 <>
@@ -332,6 +347,10 @@ export function ProductsPage() {
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               required
             />
+          </Field>
+
+          <Field label="Описание" className="sm:col-span-2" hint="Что входит: диалоги, чаты, расшифровка аудио — показывается под названием">
+            <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} maxLength={1000} />
           </Field>
 
           <Field label="Тип">

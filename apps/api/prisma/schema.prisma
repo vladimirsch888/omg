@@ -209,6 +209,12 @@ model LicenseProduct {
   tariffValueId String?
   tariffValue   DictionaryValue? @relation("LicenseProductTariff", fields: [tariffValueId], references: [id])
   pricePerSeat  Decimal?         @db.Decimal(14, 2)
+  /// Free text shown under the name: what the tariff includes.
+  description   String?
+  /// Stable key of the row in the built-in vendor catalog this product was
+  /// imported from ("wazzup:whatsapp:max:1"), so a re-import updates the
+  /// same product instead of creating a duplicate. Null for hand-made ones.
+  catalogKey    String?
 
   // Defaults copied onto a Subscription when it's created from this product;
   // each Subscription can then override them per client deal.
@@ -233,6 +239,8 @@ model LicenseProduct {
   sales         Sale[]
 
   @@index([organizationId])
+
+  @@unique([organizationId, catalogKey])
 }
 
 enum SubscriptionStatus {

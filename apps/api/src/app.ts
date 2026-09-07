@@ -25,6 +25,7 @@ import { remindersRouter } from "./modules/reminders/reminders.routes";
 import { licensesRouter } from "./modules/licenses/licenses.routes";
 import { retentionRouter } from "./modules/retention/retention.routes";
 import { taxesRouter } from "./modules/taxes/taxes.routes";
+import { vendorCatalogRouter } from "./modules/vendorCatalog/vendorCatalog.routes";
 import type { AppEnv } from "./types/hono";
 
 export const app = new Hono<AppEnv>();
@@ -74,6 +75,7 @@ app.route("/api/reminders", remindersRouter);
 app.route("/api/licenses", licensesRouter);
 app.route("/api/retention", retentionRouter);
 app.route("/api/taxes", taxesRouter);
+app.route("/api/vendor-catalog", vendorCatalogRouter);
 
 app.notFound((c) => c.json({ error: "Не найдено" }, 404));
 
