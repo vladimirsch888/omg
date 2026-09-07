@@ -3,6 +3,7 @@ import { config } from "../../config";
 import { getProjectAndDescendantIds } from "../projects/projects.service";
 import { computeWaterfall } from "../finance/waterfall";
 import { endOfDay, startOfMonth } from "../../utils/dates";
+import { getOutstandingTax } from "../taxes/taxes.service";
 
 export interface ReportFilters {
   from?: Date;
@@ -342,7 +343,10 @@ export async function getCashPosition(organizationId: string) {
     taxReserveAccrued += taxReserve;
   }
   const taxPaid = Number(taxPaidAgg._sum.amount ?? 0);
-  const taxReserveOutstanding = Math.max(0, taxReserveAccrued - taxPaid);
+  // With a tax profile the calendar knows exactly what is still owed; without
+  // one, fall back to the flat reserve minus what was paid.
+  const calendarOutstanding = await getOutstandingTax(organizationId);
+  const taxReserveOutstanding = calendarOutstanding ?? Math.max(0, taxReserveAccrued - taxPaid);
 
   // Cash per account / cash box; operations with no account go to "unassigned".
   const balances = new Map<string | null, number>();
@@ -365,6 +369,7 @@ export async function getCashPosition(organizationId: string) {
     taxReserveOutstanding,
     spendable: cumulativeCash - taxReserveOutstanding,
     taxReservePercent: config.taxReservePercent,
+    taxSource: calendarOutstanding === null ? "flat" : "calendar",
     accountBalances,
   };
 }

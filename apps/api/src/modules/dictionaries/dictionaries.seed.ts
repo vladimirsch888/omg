@@ -28,7 +28,8 @@ const DEFAULT_DICTIONARIES: Array<{
       { code: "hosting_software", name: "Хостинг / ПО / сервисы", color: "#9333ea" },
       { code: "marketing", name: "Маркетинг и реклама", color: "#db2777" },
       { code: "office_admin", name: "Офис / администрирование", color: "#64748b" },
-      { code: "taxes", name: "Налоги и сборы", color: "#78716c" },
+      // systemKey: tax payments booked from the tax calendar land here.
+      { code: "taxes", name: "Налоги и сборы", color: "#78716c", systemKey: "taxes" },
       { code: "other", name: "Прочее", color: "#71717a" },
     ],
   },
@@ -63,6 +64,39 @@ const DEFAULT_DICTIONARIES: Array<{
       { code: "main_account", name: "Основной расчётный счёт" },
       { code: "card", name: "Карта" },
       { code: "cash", name: "Касса" },
+    ],
+  },
+  {
+    code: "vendor",
+    name: "Вендоры",
+    description: "Поставщики лицензий, которые вы перепродаёте",
+    values: [
+      { code: "amocrm", name: "amoCRM" },
+      { code: "wazzup", name: "Wazzup" },
+      { code: "nova", name: "NOVA" },
+    ],
+  },
+  {
+    code: "license_tariff",
+    name: "Тарифы лицензий",
+    description: "Тарифные планы вендоров",
+    values: [
+      { code: "basic", name: "Базовый" },
+      { code: "advanced", name: "Расширенный" },
+      { code: "professional", name: "Профессиональный" },
+    ],
+  },
+  {
+    code: "cancel_reason",
+    name: "Причины отмены подписки",
+    description: "Почему клиент отказался от лицензии",
+    values: [
+      { code: "price", name: "Дорого" },
+      { code: "competitor", name: "Ушёл к конкуренту" },
+      { code: "closed", name: "Закрыл бизнес" },
+      { code: "unused", name: "Не пользовался" },
+      { code: "tariff_change", name: "Перешёл на другой тариф / продукт" },
+      { code: "other", name: "Прочее" },
     ],
   },
   {

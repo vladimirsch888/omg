@@ -1,14 +1,15 @@
 import { prisma } from "../../prisma";
 import { config } from "../../config";
 import { startOfDay } from "../../utils/dates";
+import { getTaxCalendar } from "../taxes/taxes.service";
 
 export interface Reminder {
-  kind: "overdue" | "due_soon" | "invoice_stale" | "work_deadline" | "request_high";
+  kind: "overdue" | "due_soon" | "invoice_stale" | "work_deadline" | "request_high" | "tax_due" | "tax_overdue";
   title: string;
   detail: string;
   /** Sorting key: how urgent, days negative = overdue. */
   days: number;
-  entity: "subscription" | "sale" | "request";
+  entity: "subscription" | "sale" | "request" | "tax";
   entityId: string;
   clientName?: string;
 }
@@ -121,6 +122,23 @@ export async function getReminders(organizationId: string): Promise<Reminder[]> 
     });
   }
 
+  // Tax deadlines within 14 days, and anything overdue.
+  const year = today.getFullYear();
+  const [calendar, previous] = await Promise.all([getTaxCalendar(organizationId, year), getTaxCalendar(organizationId, year - 1)]);
+  for (const o of [...previous.obligations, ...calendar.obligations]) {
+    if (o.kind === "vat_warning" || o.outstanding <= 0) continue;
+    const days = daysFrom(o.dueDate);
+    if (days > 14) continue;
+    reminders.push({
+      kind: days < 0 ? "tax_overdue" : "tax_due",
+      title: days < 0 ? `Просрочен налог: ${o.title}` : `Налог ${days === 0 ? "сегодня" : `через ${days} дн.`}: ${o.title}`,
+      detail: `${new Intl.NumberFormat("ru-RU").format(o.outstanding)} ₽ до ${formatDate(o.dueDate)}`,
+      days,
+      entity: "tax",
+      entityId: o.period,
+    });
+  }
+
   return reminders.sort((a, b) => a.days - b.days);
 }
 
@@ -138,6 +156,8 @@ export function formatDigest(organizationName: string, reminders: Reminder[]): s
     invoice_stale: "🧾",
     work_deadline: "⏱",
     request_high: "❗",
+    tax_due: "🏛",
+    tax_overdue: "🔴",
   };
   for (const r of reminders.slice(0, 30)) {
     lines.push(`${icon[r.kind]} ${r.title}`);

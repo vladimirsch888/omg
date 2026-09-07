@@ -16,6 +16,9 @@ import { RequestsPage } from "./pages/RequestsPage";
 import { TimeTrackingPage } from "./pages/TimeTrackingPage";
 import { PnLPage } from "./pages/PnLPage";
 import { DDSPage } from "./pages/DDSPage";
+import { LicensesPage } from "./pages/LicensesPage";
+import { RetentionPage } from "./pages/RetentionPage";
+import { TaxesPage } from "./pages/TaxesPage";
 import { DictionariesPage } from "./pages/admin/DictionariesPage";
 import { UsersPage } from "./pages/admin/UsersPage";
 import { SettingsPage } from "./pages/admin/SettingsPage";
@@ -47,6 +50,9 @@ export default function App() {
         <Route path="/time-tracking" element={<TimeTrackingPage />} />
         <Route path="/reports/pnl" element={<PnLPage />} />
         <Route path="/reports/dds" element={<DDSPage />} />
+        <Route path="/reports/retention" element={<RetentionPage />} />
+        <Route path="/licenses" element={<LicensesPage />} />
+        <Route path="/taxes" element={<TaxesPage />} />
         <Route path="/admin/dictionaries" element={<DictionariesPage />} />
         <Route path="/admin/users" element={<UsersPage />} />
         <Route path="/admin/settings" element={<SettingsPage />} />

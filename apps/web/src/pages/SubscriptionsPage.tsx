@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import {
   CalendarClock,
+  CalendarRange,
   CreditCard,
   FileCheck2,
   History,
@@ -14,11 +15,13 @@ import {
   Wallet,
 } from "lucide-react";
 import { api, errorMessage } from "../api/client";
-import { Client, LicenseProduct, Operation, Project, Subscription, SubscriptionMonthSummary } from "../api/types";
+import { Client, DictionaryType, DictionaryValue, LicenseProduct, Operation, Project, Subscription, SubscriptionMonthSummary } from "../api/types";
+import { SubscriptionTimeline } from "../components/SubscriptionTimeline";
 import { useAuth } from "../context/AuthContext";
 import {
   Badge,
   Button,
+  Card,
   ListCard,
   Checkbox,
   Column,
@@ -96,6 +99,17 @@ export function SubscriptionsPage() {
   const [startDate, setStartDate] = useState(todayInput());
   const [nextBillingDate, setNextBillingDate] = useState("");
   const [status, setStatus] = useState<Subscription["status"]>("ACTIVE");
+  const [seats, setSeats] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [accountRef, setAccountRef] = useState("");
+  const [notes, setNotes] = useState("");
+  const [cancelReasons, setCancelReasons] = useState<DictionaryValue[]>([]);
+  // Cancelling asks why — the retention report is only as good as these answers.
+  const [cancelling, setCancelling] = useState<Subscription | null>(null);
+  const [cancelReasonId, setCancelReasonId] = useState("");
+  const [cancelComment, setCancelComment] = useState("");
+  const [cancelDate, setCancelDate] = useState(todayInput());
+  const [cancelBusy, setCancelBusy] = useState(false);
 
   function load() {
     api
@@ -115,6 +129,9 @@ export function SubscriptionsPage() {
     // WORK products have no subscription term — only LICENSE products can be subscribed.
     api.get<LicenseProduct[]>("/license-products").then((res) => setProducts(res.data.filter((p) => p.type === "LICENSE")));
     api.get<Project[]>("/projects").then((res) => setProjects(res.data.flatMap((p) => [p, ...(p.children ?? [])])));
+    api.get<DictionaryType[]>("/dictionaries").then((res) => {
+      setCancelReasons(res.data.find((d) => d.code === "cancel_reason")?.values.filter((v) => v.isActive) ?? []);
+    });
   }, []);
 
   const projectsForClient = projects.filter((p) => p.clientId === clientId);
@@ -140,6 +157,10 @@ export function SubscriptionsPage() {
     setVendorSharePercent("");
     setTaxable(true);
     setStartDate(todayInput());
+    setSeats("");
+    setExpiresAt("");
+    setAccountRef("");
+    setNotes("");
     setEditingId(null);
     setEditingSubscription(null);
     setFormOpen(true);
@@ -152,6 +173,10 @@ export function SubscriptionsPage() {
     setTaxable(s.taxable);
     setNextBillingDate(toDateInputValue(s.nextBillingDate));
     setStatus(s.status);
+    setSeats(s.seats != null ? String(s.seats) : "");
+    setExpiresAt(toDateInputValue(s.expiresAt));
+    setAccountRef(s.accountRef ?? "");
+    setNotes(s.notes ?? "");
     setEditingId(s.id);
     setEditingSubscription(s);
     setFormOpen(true);
@@ -168,9 +193,20 @@ export function SubscriptionsPage() {
           vendorSharePercent: Number(vendorSharePercent),
           taxable,
           nextBillingDate: dateInputToIso(nextBillingDate),
-          status,
+          // A switch to «Отменена» goes through the reason dialog instead.
+          status: status === "CANCELLED" && editingSubscription?.status !== "CANCELLED" ? undefined : status,
+          seats: seats ? Number(seats) : null,
+          expiresAt: expiresAt ? dateInputToIso(expiresAt) : null,
+          accountRef: accountRef.trim() || null,
+          notes: notes.trim() || null,
         });
         ui.toast("Подписка обновлена", "success");
+        if (status === "CANCELLED" && editingSubscription && editingSubscription.status !== "CANCELLED") {
+          setFormOpen(false);
+          startCancel(editingSubscription);
+          load();
+          return;
+        }
       } else {
         await api.post("/subscriptions", {
           clientId,
@@ -181,6 +217,10 @@ export function SubscriptionsPage() {
           vendorSharePercent: vendorSharePercent ? Number(vendorSharePercent) : undefined,
           taxable,
           startDate: dateInputToIso(startDate),
+          seats: seats ? Number(seats) : undefined,
+          expiresAt: expiresAt ? dateInputToIso(expiresAt) : undefined,
+          accountRef: accountRef.trim() || undefined,
+          notes: notes.trim() || undefined,
         });
         ui.toast("Подписка создана, первый платёж выставлен", "success");
       }
@@ -221,9 +261,41 @@ export function SubscriptionsPage() {
     }
   }
 
-  async function handleStatusChange(id: string, next: Subscription["status"]) {
+  function startCancel(s: Subscription) {
+    setCancelling(s);
+    setCancelReasonId("");
+    setCancelComment("");
+    setCancelDate(todayInput());
+  }
+
+  async function submitCancel(e: FormEvent) {
+    e.preventDefault();
+    if (!cancelling) return;
+    setCancelBusy(true);
     try {
-      await api.patch(`/subscriptions/${id}`, { status: next });
+      await api.patch(`/subscriptions/${cancelling.id}`, {
+        status: "CANCELLED",
+        cancelledAt: dateInputToIso(cancelDate),
+        cancelReasonValueId: cancelReasonId || null,
+        cancelComment: cancelComment.trim() || null,
+      });
+      ui.toast(`Подписка отменена: ${cancelling.client?.name}`, "success");
+      setCancelling(null);
+      load();
+    } catch (err) {
+      ui.toast(errorMessage(err, "Не удалось отменить подписку"), "error");
+    } finally {
+      setCancelBusy(false);
+    }
+  }
+
+  async function handleStatusChange(s: Subscription, next: Subscription["status"]) {
+    if (next === "CANCELLED") {
+      startCancel(s);
+      return;
+    }
+    try {
+      await api.patch(`/subscriptions/${s.id}`, { status: next });
       ui.toast(`Статус: ${statusLabel[next].toLowerCase()}`, "success");
       load();
     } catch (err) {
@@ -317,8 +389,10 @@ export function SubscriptionsPage() {
       header: "Продукт",
       width: "26%",
       render: (s) => (
-        <span className="flex items-center gap-1.5 text-ink-muted">
+        <span className="flex flex-wrap items-center gap-1.5 text-ink-muted">
           {s.licenseProduct?.name}
+          {s.seats != null && <Badge>{s.seats} мест</Badge>}
+          {s.licenseProduct?.tariffValue && <Badge tone="accent">{s.licenseProduct.tariffValue.name}</Badge>}
           {!s.taxable && <Badge tone="reserve">на карту</Badge>}
         </span>
       ),
@@ -367,7 +441,7 @@ export function SubscriptionsPage() {
       width: "10rem",
       render: (s) =>
         canEdit ? (
-          <SelectCompact className="min-w-36" value={s.status} onChange={(e) => handleStatusChange(s.id, e.target.value as Subscription["status"])}>
+          <SelectCompact className="min-w-36" value={s.status} onChange={(e) => handleStatusChange(s, e.target.value as Subscription["status"])}>
             <option value="ACTIVE">{statusLabel.ACTIVE}</option>
             <option value="PAUSED">{statusLabel.PAUSED}</option>
             <option value="CANCELLED">{statusLabel.CANCELLED}</option>
@@ -490,6 +564,17 @@ export function SubscriptionsPage() {
         </div>
       )}
 
+      <Card
+        title={
+          <span className="flex items-center gap-2 text-sm font-semibold tracking-tight text-ink">
+            <CalendarRange className="size-4 text-ink-subtle" strokeWidth={1.8} />
+            Окончание подписок по клиентам
+          </span>
+        }
+      >
+        <SubscriptionTimeline subscriptions={subscriptions} />
+      </Card>
+
       <FilterBar>
         <Field label="Поиск" className="min-w-48 flex-1 sm:max-w-xs">
           <div className="relative">
@@ -531,6 +616,8 @@ export function SubscriptionsPage() {
                   {invoiceBadge(s)}
                   {!s.taxable && <Badge tone="reserve">на карту</Badge>}
                   <MetaItem label="Срок">{s.durationMonths} мес.</MetaItem>
+                  {s.seats != null && <MetaItem label="Мест">{s.seats}</MetaItem>}
+                  {s.expiresAt && <MetaItem label="Лицензия до">{formatDate(s.expiresAt)}</MetaItem>}
                 </>
               }
               actions={
@@ -709,6 +796,19 @@ export function SubscriptionsPage() {
             />
           </Field>
 
+          <Field label="Мест (пользователей)" hint="Для портфеля лицензий и подсказок о допродаже">
+            <Input type="number" min="1" inputMode="numeric" value={seats} onChange={(e) => setSeats(e.target.value)} />
+          </Field>
+          <Field label="Лицензия у вендора до" hint="Если отличается от даты платежа — например, оплачено с запасом">
+            <Input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+          </Field>
+          <Field label="Аккаунт у вендора" hint="Поддомен amoCRM, номер Wazzup и т.п.">
+            <Input value={accountRef} onChange={(e) => setAccountRef(e.target.value)} maxLength={200} />
+          </Field>
+          <Field label="Заметка">
+            <Input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} />
+          </Field>
+
           <div className="flex items-end pb-1 sm:col-span-2">
             <Checkbox label="Облагается налогом" checked={taxable} onChange={(e) => setTaxable(e.target.checked)} />
           </div>
@@ -752,6 +852,43 @@ export function SubscriptionsPage() {
         ) : (
           <p className="py-6 text-center text-sm text-ink-subtle">Платежей по подписке пока не было</p>
         )}
+      </Modal>
+
+      <Modal
+        open={cancelling !== null}
+        onClose={() => setCancelling(null)}
+        title="Отмена подписки"
+        description={cancelling ? `${cancelling.client?.name} — ${cancelling.licenseProduct?.name}. Причина попадёт в отчёт «Удержание».` : undefined}
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setCancelling(null)}>
+              Не отменять
+            </Button>
+            <Button variant="danger" form="cancel-form" type="submit" loading={cancelBusy}>
+              Отменить подписку
+            </Button>
+          </>
+        }
+      >
+        <form id="cancel-form" onSubmit={submitCancel} className="flex flex-col gap-3.5 pb-2">
+          <Field label="Дата отмены">
+            <Input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} required />
+          </Field>
+          <Field label="Причина">
+            <Select value={cancelReasonId} onChange={(e) => setCancelReasonId(e.target.value)}>
+              <option value="">Не указана</option>
+              {cancelReasons.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Комментарий">
+            <Input value={cancelComment} onChange={(e) => setCancelComment(e.target.value)} maxLength={2000} placeholder="Что сказал клиент" />
+          </Field>
+        </form>
       </Modal>
     </div>
   );

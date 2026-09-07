@@ -22,6 +22,9 @@ import { salesPlansRouter } from "./modules/salesPlans/salesPlans.routes";
 import { auditRouter } from "./modules/audit/audit.routes";
 import { exportRouter } from "./modules/export/export.routes";
 import { remindersRouter } from "./modules/reminders/reminders.routes";
+import { licensesRouter } from "./modules/licenses/licenses.routes";
+import { retentionRouter } from "./modules/retention/retention.routes";
+import { taxesRouter } from "./modules/taxes/taxes.routes";
 import type { AppEnv } from "./types/hono";
 
 export const app = new Hono<AppEnv>();
@@ -68,6 +71,9 @@ app.route("/api/sales-plans", salesPlansRouter);
 app.route("/api/audit", auditRouter);
 app.route("/api/export", exportRouter);
 app.route("/api/reminders", remindersRouter);
+app.route("/api/licenses", licensesRouter);
+app.route("/api/retention", retentionRouter);
+app.route("/api/taxes", taxesRouter);
 
 app.notFound((c) => c.json({ error: "Не найдено" }, 404));
 

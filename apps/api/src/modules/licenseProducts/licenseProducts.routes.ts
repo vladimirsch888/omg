@@ -17,7 +17,7 @@ licenseProductsRouter.get("/", async (c) => {
       organizationId: auth.organizationId,
       ...(includeInactive ? {} : { isActive: true }),
     },
-    include: { categoryValue: true },
+    include: { categoryValue: true, vendorValue: true, tariffValue: true },
     orderBy: { name: "asc" },
   });
   return c.json(products);
@@ -30,6 +30,10 @@ const productSchema = z.object({
   name: z.string().trim().min(1).max(200),
   type: z.enum(["LICENSE", "WORK"]).default("LICENSE"),
   categoryValueId: z.string().uuid().optional().nullable(),
+  vendorValueId: z.string().uuid().optional().nullable(),
+  tariffValueId: z.string().uuid().optional().nullable(),
+  // Price of one seat when the vendor bills per seat; null = flat price.
+  pricePerSeat: z.number().positive().max(1_000_000_000).optional().nullable(),
   defaultPrice: z.number().positive().max(1_000_000_000),
   defaultDurationMonths: z.number().int().positive().max(120).optional().nullable(),
   // Estimated execution time in working days — only meaningful for WORK.
@@ -38,10 +42,19 @@ const productSchema = z.object({
   defaultTaxable: z.boolean().default(true),
 });
 
+async function assertProductReferences(
+  organizationId: string,
+  body: { categoryValueId?: string | null; vendorValueId?: string | null; tariffValueId?: string | null }
+) {
+  if (body.categoryValueId) await assertDictionaryValue(organizationId, body.categoryValueId, "operation_category", "Категория");
+  if (body.vendorValueId) await assertDictionaryValue(organizationId, body.vendorValueId, "vendor", "Вендор");
+  if (body.tariffValueId) await assertDictionaryValue(organizationId, body.tariffValueId, "license_tariff", "Тариф");
+}
+
 licenseProductsRouter.post("/", requireRole("OWNER", "ADMIN"), async (c) => {
   const auth = c.get("auth");
   const body = productSchema.parse(await c.req.json());
-  if (body.categoryValueId) await assertDictionaryValue(auth.organizationId, body.categoryValueId, "operation_category", "Категория");
+  await assertProductReferences(auth.organizationId, body);
   const defaultDurationMonths = body.type === "WORK" ? null : (body.defaultDurationMonths ?? 1);
   const defaultWorkDays = body.type === "WORK" ? (body.defaultWorkDays ?? null) : null;
   const product = await prisma.licenseProduct.create({
@@ -58,7 +71,7 @@ licenseProductsRouter.patch("/:id", requireRole("OWNER", "ADMIN"), async (c) => 
     where: { id: c.req.param("id"), organizationId: auth.organizationId },
   });
   if (!product) throw new AppError(404, "Продукт не найден");
-  if (body.categoryValueId) await assertDictionaryValue(auth.organizationId, body.categoryValueId, "operation_category", "Категория");
+  await assertProductReferences(auth.organizationId, body);
 
   const effectiveType = body.type ?? product.type;
   const data = { ...body } as typeof body;

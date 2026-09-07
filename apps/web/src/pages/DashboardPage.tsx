@@ -31,12 +31,15 @@ const reminderTone: Record<Reminder["kind"], BadgeTone> = {
   invoice_stale: "reserve",
   work_deadline: "accent",
   request_high: "expense",
+  tax_due: "reserve",
+  tax_overdue: "expense",
 };
 
 const reminderLink: Record<Reminder["entity"], string> = {
   subscription: "/subscriptions",
   sale: "/sales",
   request: "/requests",
+  tax: "/taxes",
 };
 
 export function DashboardPage() {
@@ -89,7 +92,7 @@ export function DashboardPage() {
   const expenseTotal = expenseSlices.reduce((sum, s) => sum + s.value, 0);
   const topClients = data.topClients.slice(0, 6);
   const maxLtv = Math.max(...topClients.map((c) => Math.abs(c.ltv)), 1);
-  const urgent = (reminders ?? []).filter((r) => r.kind === "overdue" || r.kind === "invoice_stale" || r.kind === "request_high").length;
+  const urgent = (reminders ?? []).filter((r) => r.kind === "overdue" || r.kind === "invoice_stale" || r.kind === "request_high" || r.kind === "tax_overdue").length;
 
   return (
     <div className="flex flex-col gap-5 sm:gap-6">
@@ -127,12 +130,22 @@ export function DashboardPage() {
                 <dd className="mt-1 text-lg font-semibold text-ink tnum">{formatMoney(cash.cumulativeCash)}</dd>
               </div>
               <div>
-                <dt className="text-xs text-ink-muted">Резерв на налог ({cash.taxReservePercent}%)</dt>
+                <dt className="text-xs text-ink-muted">
+                  {cash.taxSource === "calendar" ? "К уплате по налоговому календарю" : `Резерв на налог (${cash.taxReservePercent}%)`}
+                </dt>
                 <dd className="mt-1 text-lg font-semibold text-reserve tnum">{formatMoney(cash.taxReserveOutstanding)}</dd>
-                {cash.taxPaid > 0 && (
-                  <dd className="mt-0.5 text-[11px] text-ink-subtle tnum">
-                    начислено {formatMoney(cash.taxReserveAccrued)}, уплачено {formatMoney(cash.taxPaid)}
+                {cash.taxSource === "calendar" ? (
+                  <dd className="mt-0.5 text-[11px] text-ink-subtle">
+                    <Link to="/taxes" className="transition-colors hover:text-accent">
+                      авансы, взносы и 1 % — открыть календарь
+                    </Link>
                   </dd>
+                ) : (
+                  cash.taxPaid > 0 && (
+                    <dd className="mt-0.5 text-[11px] text-ink-subtle tnum">
+                      начислено {formatMoney(cash.taxReserveAccrued)}, уплачено {formatMoney(cash.taxPaid)}
+                    </dd>
+                  )
                 )}
               </div>
             </dl>

@@ -15,6 +15,18 @@ import { recordSale } from "../sales/sales.service";
  * flat for any feature currently in the product.
  */
 
+/** "2026-Q2" for the quarter before the current one (the advance a demo pays). */
+/** Fixed contributions of a sole proprietor for the demo's tax profile (2026 figure). */
+const DEMO_FIXED_CONTRIBUTIONS = 57390;
+
+function previousQuarterKey(): string {
+  const now = new Date();
+  const q = Math.floor(now.getMonth() / 3); // 0..3 current quarter
+  const prev = q === 0 ? 4 : q; // 1..4 → previous quarter number
+  const year = q === 0 ? now.getFullYear() - 1 : now.getFullYear();
+  return prev === 4 ? `${year}` : `${year}-${["Q1", "H1", "9M"][prev - 1]}`;
+}
+
 function dateInPast(monthsAgo: number, day: number): Date {
   const d = new Date();
   d.setDate(1);
@@ -42,6 +54,9 @@ async function loadDictionaryMaps(organizationId: string) {
     paymentMethod: maps.payment_method ?? {},
     requestType: maps.request_type ?? {},
     account: maps.account ?? {},
+    vendor: maps.vendor ?? {},
+    tariff: maps.license_tariff ?? {},
+    cancelReason: maps.cancel_reason ?? {},
   };
 }
 
@@ -204,6 +219,9 @@ export async function seedDemoData(organizationId: string, userId: string) {
       isDemo: true,
       name: "amoCRM Professional (10 мест)",
       categoryValueId: dict.category.license_amocrm ?? null,
+      vendorValueId: dict.vendor.amocrm ?? null,
+      tariffValueId: dict.tariff.professional ?? null,
+      pricePerSeat: 4500,
       defaultPrice: 45000,
       defaultDurationMonths: 1,
       defaultVendorSharePercent: 50,
@@ -216,6 +234,9 @@ export async function seedDemoData(organizationId: string, userId: string) {
       isDemo: true,
       name: "Wazzup Стандарт",
       categoryValueId: dict.category.license_wazzup ?? null,
+      vendorValueId: dict.vendor.wazzup ?? null,
+      tariffValueId: dict.tariff.basic ?? null,
+      pricePerSeat: 6000,
       defaultPrice: 18000,
       defaultDurationMonths: 1,
       defaultVendorSharePercent: 50,
@@ -228,6 +249,8 @@ export async function seedDemoData(organizationId: string, userId: string) {
       isDemo: true,
       name: "NOVA Годовая лицензия",
       categoryValueId: dict.category.license_nova ?? null,
+      vendorValueId: dict.vendor.nova ?? null,
+      tariffValueId: dict.tariff.advanced ?? null,
       defaultPrice: 250000,
       defaultDurationMonths: 12,
       defaultVendorSharePercent: 50,
@@ -240,6 +263,9 @@ export async function seedDemoData(organizationId: string, userId: string) {
       isDemo: true,
       name: "Wazzup Mini (доп. номер, оплата на карту)",
       categoryValueId: dict.category.license_wazzup ?? null,
+      vendorValueId: dict.vendor.wazzup ?? null,
+      tariffValueId: dict.tariff.basic ?? null,
+      pricePerSeat: 6000,
       defaultPrice: 6000,
       defaultDurationMonths: 1,
       defaultVendorSharePercent: 50,
@@ -290,7 +316,7 @@ export async function seedDemoData(organizationId: string, userId: string) {
     projectId: string,
     product: { id: string; defaultPrice: unknown; defaultDurationMonths: number | null; defaultVendorSharePercent: unknown; defaultTaxable: boolean; name: string },
     monthsOfHistory: number,
-    overrides: Partial<{ price: number; vendorSharePercent: number; taxable: boolean; durationMonths: number }> = {}
+    overrides: Partial<{ price: number; vendorSharePercent: number; taxable: boolean; durationMonths: number; seats: number; accountRef: string }> = {}
   ) {
     const durationMonths = overrides.durationMonths ?? product.defaultDurationMonths;
     if (!durationMonths) throw new Error(`seedSubscription: product "${product.name}" has no defaultDurationMonths (is it a WORK product?)`);
@@ -308,6 +334,8 @@ export async function seedDemoData(organizationId: string, userId: string) {
         taxable: overrides.taxable ?? product.defaultTaxable,
         startDate,
         nextBillingDate: startDate,
+        seats: overrides.seats ?? null,
+        accountRef: overrides.accountRef ?? null,
       },
       include: { client: true, licenseProduct: true },
     });
@@ -323,11 +351,31 @@ export async function seedDemoData(organizationId: string, userId: string) {
   }
 
   let subscriptionOperationsCount = 0;
-  subscriptionOperationsCount += await seedSubscription(clientRomashka.id, projectByKey.romashkaLicense, productAmoCRM, 6);
-  subscriptionOperationsCount += await seedSubscription(clientSfera.id, projectByKey.sfera, productWazzup, 6);
+  subscriptionOperationsCount += await seedSubscription(clientRomashka.id, projectByKey.romashkaLicense, productAmoCRM, 6, { seats: 10, accountRef: "romashka.amocrm.ru" });
+  subscriptionOperationsCount += await seedSubscription(clientSfera.id, projectByKey.sfera, productWazzup, 6, { seats: 3 });
   subscriptionOperationsCount += await seedSubscription(clientKuznetsov.id, projectByKey.kuznetsovLicense, productNova, 8);
   // Paid straight to a personal card: vendor still takes its 50%, but no tax reserve is set aside.
-  subscriptionOperationsCount += await seedSubscription(clientTechnopark.id, projectByKey.technopark, productWazzupCard, 3);
+  subscriptionOperationsCount += await seedSubscription(clientTechnopark.id, projectByKey.technopark, productWazzupCard, 3, { seats: 1 });
+  // A churned subscription with a reason, so the retention report and the
+  // cohort table have an actual loss to show: started 9 months ago,
+  // cancelled 3 months ago.
+  subscriptionOperationsCount += await seedSubscription(clientTechnopark.id, projectByKey.technopark, productWazzup, 9, { seats: 2, durationMonths: 1 });
+  const churned = await prisma.subscription.findFirst({
+    where: { organizationId, isDemo: true, clientId: clientTechnopark.id, licenseProductId: productWazzup.id },
+  });
+  if (churned) {
+    await prisma.subscription.update({
+      where: { id: churned.id },
+      data: {
+        status: "CANCELLED",
+        cancelledAt: dateInPast(3, 12),
+        cancelReasonValueId: dict.cancelReason.competitor ?? null,
+        cancelComment: "Перешли на встроенный мессенджер CRM",
+      },
+    });
+    // Its operations after the cancellation date would be nonsense: drop them.
+    await prisma.operation.deleteMany({ where: { subscriptionId: churned.id, accrualDate: { gt: dateInPast(3, 12) } } });
+  }
 
   // Put one subscription into the "счёт отправлен" stage so the yellow
   // highlight and the invoice badge are visible in a fresh demo.
@@ -444,8 +492,33 @@ export async function seedDemoData(organizationId: string, userId: string) {
     paymentMethodValueId: dict.paymentMethod.bank_account ?? null,
     accountValueId: dict.account.main_account ?? null,
     taxPayment: true,
+    taxKind: "usn_advance",
+    taxPeriod: previousQuarterKey(),
     counterparty: "ФНС",
     description: "Авансовый платёж по УСН за квартал",
+    createdById: userId,
+  });
+
+  // Last year's fixed contributions, paid in December — otherwise a fresh
+  // demo opens with an overdue obligation in the tax calendar.
+  const lastDecember = new Date(new Date().getFullYear() - 1, 11, 20, 12);
+  operationsToCreate.push({
+    organizationId,
+    isDemo: true,
+    projectId: null,
+    type: "EXPENSE",
+    status: "ACTUAL",
+    amount: DEMO_FIXED_CONTRIBUTIONS,
+    accrualDate: lastDecember,
+    paymentDate: lastDecember,
+    categoryValueId: dict.category.taxes ?? null,
+    paymentMethodValueId: dict.paymentMethod.bank_account ?? null,
+    accountValueId: dict.account.main_account ?? null,
+    taxPayment: true,
+    taxKind: "ip_fixed",
+    taxPeriod: `${lastDecember.getFullYear()}-fixed`,
+    counterparty: "ФНС",
+    description: `Фиксированные взносы ИП за ${lastDecember.getFullYear()} год`,
     createdById: userId,
   });
 
@@ -560,11 +633,32 @@ export async function seedDemoData(organizationId: string, userId: string) {
   ];
   await prisma.salesPlan.createMany({ data: salesPlans });
 
+  // A tax profile is the organization's own setting (no isDemo flag); the
+  // demo only fills it in when there is none yet, so the tax calendar shows
+  // real arithmetic on first sight. Figures for a sole proprietor on УСН
+  // "доходы", 2026 — the owner should verify them against the current law.
+  await prisma.taxProfile.upsert({
+    where: { organizationId },
+    create: {
+      organizationId,
+      form: "IP",
+      regime: "USN_INCOME",
+      ratePercent: 6,
+      fixedContributions: DEMO_FIXED_CONTRIBUTIONS,
+      onePercentThreshold: 300000,
+      onePercentCap: 321818,
+      deductFixedWhenDue: true,
+      hasEmployees: false,
+      vatThreshold: 20000000,
+    },
+    update: {},
+  });
+
   return {
     clients: 4,
     projects: 7,
     licenseProducts: 6,
-    subscriptions: 4,
+    subscriptions: 5,
     sales: salesCount,
     operations: operationsToCreate.length + subscriptionOperationsCount + saleOperationsCount,
     requests: requests.length,

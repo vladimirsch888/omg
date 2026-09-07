@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { prisma } from "../../prisma";
 import { AppError } from "../../utils/errors";
-import { assertClient, assertLicenseProduct, assertProject } from "../../utils/ownership";
+import { assertClient, assertDictionaryValue, assertLicenseProduct, assertProject } from "../../utils/ownership";
 import { audit } from "../audit/audit.service";
 import { billSubscription, getMonthSummary } from "./subscriptions.service";
 import type { AppEnv } from "../../types/hono";
@@ -35,7 +35,16 @@ subscriptionsRouter.get("/", async (c) => {
     include: {
       client: { select: { id: true, name: true } },
       project: { select: { id: true, name: true } },
-      licenseProduct: { select: { id: true, name: true } },
+      licenseProduct: {
+        select: {
+          id: true,
+          name: true,
+          pricePerSeat: true,
+          vendorValue: { select: { id: true, name: true } },
+          tariffValue: { select: { id: true, name: true } },
+        },
+      },
+      cancelReasonValue: { select: { id: true, name: true } },
     },
     orderBy: { nextBillingDate: "asc" },
   });
@@ -73,6 +82,10 @@ const createSchema = z.object({
   vendorSharePercent: z.number().min(0).max(100).optional(),
   taxable: z.boolean().optional(),
   startDate: z.string().datetime(),
+  seats: z.number().int().positive().max(100_000).optional().nullable(),
+  expiresAt: z.string().datetime().optional().nullable(),
+  accountRef: z.string().trim().max(200).optional().nullable(),
+  notes: z.string().trim().max(2000).optional().nullable(),
 });
 
 // Creates a subscription and immediately bills its first period — the
@@ -116,6 +129,10 @@ subscriptionsRouter.post("/", async (c) => {
       taxable: body.taxable ?? product.defaultTaxable,
       startDate,
       nextBillingDate: startDate,
+      seats: body.seats ?? null,
+      expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+      accountRef: body.accountRef ?? null,
+      notes: body.notes ?? null,
     },
     include: { client: true, licenseProduct: true },
   });
@@ -198,6 +215,15 @@ const updateSchema = z.object({
   vendorSharePercent: z.number().min(0).max(100).optional(),
   taxable: z.boolean().optional(),
   nextBillingDate: z.string().datetime().optional(),
+  seats: z.number().int().positive().max(100_000).optional().nullable(),
+  expiresAt: z.string().datetime().optional().nullable(),
+  accountRef: z.string().trim().max(200).optional().nullable(),
+  notes: z.string().trim().max(2000).optional().nullable(),
+  // Lifecycle: normally stamped by the status change, editable to fix history.
+  cancelledAt: z.string().datetime().optional().nullable(),
+  pausedAt: z.string().datetime().optional().nullable(),
+  cancelReasonValueId: z.string().uuid().optional().nullable(),
+  cancelComment: z.string().trim().max(2000).optional().nullable(),
 });
 
 subscriptionsRouter.patch("/:id", async (c) => {
@@ -207,12 +233,35 @@ subscriptionsRouter.patch("/:id", async (c) => {
     where: { id: c.req.param("id"), organizationId: auth.organizationId },
   });
   if (!subscription) throw new AppError(404, "Подписка не найдена");
+  if (body.cancelReasonValueId) {
+    await assertDictionaryValue(auth.organizationId, body.cancelReasonValueId, "cancel_reason", "Причина отмены");
+  }
+
+  // Status transitions stamp the dates the churn report is built from.
+  const lifecycle: Record<string, unknown> = {};
+  if (body.status && body.status !== subscription.status) {
+    const now = new Date();
+    if (body.status === "CANCELLED") lifecycle.cancelledAt = body.cancelledAt ? new Date(body.cancelledAt) : now;
+    if (body.status === "PAUSED") lifecycle.pausedAt = body.pausedAt ? new Date(body.pausedAt) : now;
+    if (body.status === "ACTIVE") {
+      lifecycle.cancelledAt = null;
+      lifecycle.pausedAt = null;
+      lifecycle.cancelReasonValueId = null;
+      lifecycle.cancelComment = null;
+      // Re-activating a cancelled subscription: no invoice is out for it.
+      lifecycle.invoiceSentAt = null;
+    }
+  }
 
   const updated = await prisma.subscription.update({
     where: { id: subscription.id },
     data: {
       ...body,
       nextBillingDate: body.nextBillingDate ? new Date(body.nextBillingDate) : undefined,
+      expiresAt: body.expiresAt === undefined ? undefined : body.expiresAt ? new Date(body.expiresAt) : null,
+      cancelledAt: body.cancelledAt === undefined ? undefined : body.cancelledAt ? new Date(body.cancelledAt) : null,
+      pausedAt: body.pausedAt === undefined ? undefined : body.pausedAt ? new Date(body.pausedAt) : null,
+      ...lifecycle,
     },
   });
   audit({ organizationId: auth.organizationId, userId: auth.userId, action: "update", entity: "subscription", entityId: subscription.id, summary: `Изменена подписка${body.status ? ` — статус ${body.status}` : ""}`, details: body });

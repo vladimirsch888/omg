@@ -170,6 +170,13 @@ export interface LicenseProduct {
   defaultVendorSharePercent: string | number;
   defaultTaxable: boolean;
   isActive: boolean;
+  /** Vendor (amoCRM, Wazzup…) and tariff from the dictionaries — licences only. */
+  vendorValueId?: string | null;
+  vendorValue?: DictionaryValue | null;
+  tariffValueId?: string | null;
+  tariffValue?: DictionaryValue | null;
+  /** Catalog price per seat; lets the portfolio spot deals priced off-list. */
+  pricePerSeat?: string | number | null;
 }
 
 export interface Subscription {
@@ -179,7 +186,13 @@ export interface Subscription {
   projectId?: string | null;
   project?: { id: string; name: string } | null;
   licenseProductId: string;
-  licenseProduct?: { id: string; name: string };
+  licenseProduct?: {
+    id: string;
+    name: string;
+    pricePerSeat?: string | number | null;
+    vendorValue?: DictionaryValue | null;
+    tariffValue?: DictionaryValue | null;
+  };
   price: string | number;
   durationMonths: number;
   vendorSharePercent: string | number;
@@ -189,6 +202,16 @@ export interface Subscription {
   nextBillingDate: string;
   /** Set once the invoice for the upcoming period is sent; cleared on renewal. */
   invoiceSentAt?: string | null;
+  /** Licence details: seats, the vendor-side expiry date, the vendor account id. */
+  seats?: number | null;
+  expiresAt?: string | null;
+  accountRef?: string | null;
+  notes?: string | null;
+  pausedAt?: string | null;
+  cancelledAt?: string | null;
+  cancelReasonValueId?: string | null;
+  cancelReasonValue?: DictionaryValue | null;
+  cancelComment?: string | null;
   operations?: Operation[];
 }
 
@@ -215,15 +238,17 @@ export interface CashPosition {
   taxReserveOutstanding: number;
   spendable: number;
   taxReservePercent: number;
+  /** "calendar" once a tax profile exists — the reserve is then what the calendar says is still owed. */
+  taxSource: "flat" | "calendar";
   accountBalances: { accountId: string | null; name: string; isActive: boolean; balance: number }[];
 }
 
 export interface Reminder {
-  kind: "overdue" | "due_soon" | "invoice_stale" | "work_deadline" | "request_high";
+  kind: "overdue" | "due_soon" | "invoice_stale" | "work_deadline" | "request_high" | "tax_due" | "tax_overdue";
   title: string;
   detail: string;
   days: number;
-  entity: "subscription" | "sale" | "request";
+  entity: "subscription" | "sale" | "request" | "tax";
   entityId: string;
   clientName?: string;
 }
@@ -294,4 +319,137 @@ export interface User {
   name: string;
   role: "OWNER" | "ADMIN" | "MANAGER" | "VIEWER";
   isActive?: boolean;
+}
+
+export interface LicenseRow {
+  subscriptionId: string;
+  clientId: string;
+  clientName: string;
+  productId: string;
+  productName: string;
+  vendor: string | null;
+  tariff: string | null;
+  seats: number | null;
+  price: number;
+  pricePerSeat: number | null;
+  effectivePerSeat: number | null;
+  durationMonths: number;
+  monthlyValue: number;
+  status: Subscription["status"];
+  startDate: string;
+  nextBillingDate: string;
+  expiresAt: string;
+  daysLeft: number;
+  invoiceSentAt: string | null;
+  accountRef: string | null;
+  upsellHints: string[];
+  priceMismatch: boolean;
+}
+
+export interface LicensePortfolio {
+  summary: {
+    activeLicenses: number;
+    totalSeats: number;
+    monthlyRecurring: number;
+    expiringThisMonth: number;
+    expiringThisMonthValue: number;
+    upsellCandidates: number;
+    averagePerSeat: number | null;
+  };
+  byVendor: { vendor: string; licenses: number; seats: number; monthlyRecurring: number }[];
+  byTariff: { tariff: string; licenses: number; seats: number }[];
+  expirations: { month: string; licenses: number; value: number; byVendor: Record<string, number> }[];
+  rows: LicenseRow[];
+}
+
+export interface CohortRow {
+  cohort: string;
+  size: number;
+  mrr: number;
+  clients: number;
+  bySubscriptions: (number | null)[];
+  byMrr: (number | null)[];
+  byClients: (number | null)[];
+}
+
+export interface RetentionReport {
+  months: number;
+  cohorts: CohortRow[];
+  monthly: {
+    month: string;
+    activeStart: number;
+    started: number;
+    cancelled: number;
+    churnRate: number | null;
+    mrrStart: number;
+    mrrLost: number;
+    mrrChurnRate: number | null;
+    renewalsDue: number;
+    renewedOnTime: number;
+    renewedLate: number;
+    notRenewed: number;
+    averageDelayDays: number | null;
+  }[];
+  summary: {
+    activeNow: number;
+    cancelledLast12m: number;
+    churnRate12m: number | null;
+    averageLifetimeMonths: number | null;
+    onTimeRenewalShare: number | null;
+    lateRenewals30: number;
+  };
+  reasons: { reason: string; count: number; mrrLost: number }[];
+  churned: {
+    subscriptionId: string;
+    clientName: string;
+    productName: string;
+    cancelledAt: string;
+    lifetimeMonths: number;
+    mrr: number;
+    reason: string | null;
+    comment: string | null;
+  }[];
+}
+
+export type TaxKind = "usn_advance" | "usn_annual" | "ip_fixed" | "ip_one_percent" | "vat_warning";
+
+export interface TaxObligation {
+  kind: TaxKind;
+  period: string;
+  title: string;
+  dueDate: string;
+  noticeDate: string | null;
+  amount: number;
+  paid: number;
+  outstanding: number;
+  status: "paid" | "overdue" | "due_soon" | "upcoming" | "info";
+  breakdown: Record<string, number | string>;
+}
+
+export interface TaxProfile {
+  form: "IP" | "OOO";
+  regime: "USN_INCOME" | "USN_INCOME_EXPENSE";
+  ratePercent: number;
+  minimumTaxPercent: number;
+  fixedContributions: number;
+  onePercentThreshold: number;
+  onePercentCap: number;
+  deductFixedWhenDue: boolean;
+  hasEmployees: boolean;
+  vatThreshold: number | null;
+}
+
+export interface TaxCalendar {
+  year: number;
+  profile: TaxProfile | null;
+  obligations: TaxObligation[];
+  totals: {
+    dueThisQuarter: number;
+    dueRestOfYear: number;
+    paidThisYear: number;
+    outstandingTotal: number;
+    incomeYtd: number;
+    effectiveRatePercent: number | null;
+  };
+  monthly: { month: string; income: number; taxAccrued: number; paid: number }[];
 }

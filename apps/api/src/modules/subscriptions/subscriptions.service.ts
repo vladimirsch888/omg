@@ -24,6 +24,7 @@ interface SubscriptionForBilling {
   isDemo: boolean;
   startDate: Date;
   nextBillingDate: Date;
+  expiresAt?: Date | null;
   licenseProduct: { name: string; categoryValueId: string | null };
   client: { name: string };
 }
@@ -106,6 +107,11 @@ export async function billSubscription(
     where: { id: subscription.id },
     data: {
       nextBillingDate: nextDueDate(subscription.nextBillingDate, subscription.durationMonths, subscription.startDate),
+      // An explicit licence expiry (when it differs from the billing date)
+      // moves forward by the same period the payment just bought.
+      ...(subscription.expiresAt
+        ? { expiresAt: nextDueDate(subscription.expiresAt, subscription.durationMonths, subscription.startDate) }
+        : {}),
       // The "счёт отправлен" stage ends with the billing it was preparing —
       // the next period starts again with no invoice out.
       invoiceSentAt: null,

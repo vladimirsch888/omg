@@ -29,6 +29,7 @@ model Organization {
   sales           Sale[]
   salesPlans      SalesPlan[]
   auditLogs       AuditLog[]
+  taxProfile      TaxProfile?
 }
 
 enum Role {
@@ -170,6 +171,9 @@ model DictionaryValue {
   operations      Operation[]      @relation("OperationCategory")
   paymentOps      Operation[]      @relation("OperationPaymentMethod")
   accountOps      Operation[]      @relation("OperationAccount")
+  vendorProducts  LicenseProduct[] @relation("LicenseProductVendor")
+  tariffProducts  LicenseProduct[] @relation("LicenseProductTariff")
+  cancelledSubs   Subscription[]   @relation("SubscriptionCancelReason")
   projects        Project[]
   requests        Request[]        @relation("RequestType")
   licenseProducts LicenseProduct[] @relation("LicenseProductCategory")
@@ -197,6 +201,14 @@ model LicenseProduct {
   type            ProductType      @default(LICENSE)
   categoryValueId String?
   categoryValue   DictionaryValue? @relation("LicenseProductCategory", fields: [categoryValueId], references: [id])
+
+  // Licence portfolio: which vendor's product, which tariff, and the price of
+  // one seat when the vendor bills per seat (null = flat price).
+  vendorValueId String?
+  vendorValue   DictionaryValue? @relation("LicenseProductVendor", fields: [vendorValueId], references: [id])
+  tariffValueId String?
+  tariffValue   DictionaryValue? @relation("LicenseProductTariff", fields: [tariffValueId], references: [id])
+  pricePerSeat  Decimal?         @db.Decimal(14, 2)
 
   // Defaults copied onto a Subscription when it's created from this product;
   // each Subscription can then override them per client deal.
@@ -261,6 +273,24 @@ model Subscription {
   /// next cycle starts with no invoice out.
   invoiceSentAt DateTime?
 
+  /// Licence portfolio: seats on this licence and, when the licence period
+  /// differs from the billing period, the date it actually expires
+  /// (null = same as nextBillingDate). accountRef is the vendor account
+  /// (an amoCRM subdomain, a Wazzup workspace) the licence belongs to.
+  seats      Int?
+  expiresAt  DateTime?
+  accountRef String?
+  notes      String?
+
+  /// Lifecycle for churn/retention: when the subscription was paused,
+  /// resumed and cancelled, and why. Set automatically on status changes,
+  /// editable so history can be corrected.
+  pausedAt            DateTime?
+  cancelledAt         DateTime?
+  cancelReasonValueId String?
+  cancelReasonValue   DictionaryValue? @relation("SubscriptionCancelReason", fields: [cancelReasonValueId], references: [id])
+  cancelComment       String?
+
   isDemo    Boolean  @default(false)
   createdAt DateTime @default(now())
 
@@ -269,6 +299,7 @@ model Subscription {
   @@index([organizationId])
   @@index([clientId])
   @@index([nextBillingDate])
+  @@index([organizationId, startDate])
 }
 
 // A one-off sale of a product to a client — unlike Subscription, this has no
@@ -357,6 +388,11 @@ model Operation {
   /// position subtracts these from the accrued reserve, so paying tax
   /// doesn't count against "свободные деньги" twice.
   taxPayment Boolean @default(false)
+  /// Which obligation a tax payment settles (see taxes.service): usn_advance,
+  /// usn_annual, ip_fixed, ip_one_percent — and its period key ("2026-Q1",
+  /// "2026", "2025-1pct"). Null on ordinary expenses.
+  taxKind   String?
+  taxPeriod String?
 
   counterparty String?
   description  String?
@@ -500,4 +536,39 @@ model AuditLog {
 
   @@index([organizationId, createdAt])
   @@index([organizationId, entity, entityId])
+}
+
+/// The organization's tax regime, the numbers the calendar is computed from.
+/// One per organization; every rate lives here rather than in code so a new
+/// year's figures are a form edit, not a deploy. Amounts in roubles.
+model TaxProfile {
+  id             String       @id @default(uuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// IP (sole proprietor) or OOO (company).
+  form   String @default("IP")
+  /// USN_INCOME (6 % of income) or USN_INCOME_EXPENSE (15 % of income − expenses).
+  regime String @default("USN_INCOME")
+  /// Regional rate, percent.
+  ratePercent Decimal @default(6) @db.Decimal(5, 2)
+  /// Only for USN_INCOME_EXPENSE: the minimum tax, percent of income.
+  minimumTaxPercent Decimal @default(1) @db.Decimal(5, 2)
+
+  /// Fixed contributions a sole proprietor owes for the year, and the
+  /// threshold/cap of the extra 1 % over the year's income.
+  fixedContributions   Decimal @default(0) @db.Decimal(14, 2)
+  onePercentThreshold  Decimal @default(300000) @db.Decimal(14, 2)
+  onePercentCap        Decimal @default(0) @db.Decimal(14, 2)
+  /// Whether the year's fixed contributions reduce the USN tax as soon as
+  /// they are due (the 2025+ rule) rather than only once paid.
+  deductFixedWhenDue   Boolean @default(true)
+  /// Has employees: caps the contribution deduction at 50 % of the tax.
+  hasEmployees Boolean @default(false)
+
+  /// Warn when the year's income approaches this (the VAT threshold for USN).
+  vatThreshold Decimal? @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

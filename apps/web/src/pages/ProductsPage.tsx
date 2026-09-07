@@ -33,6 +33,9 @@ const emptyForm = {
   defaultWorkDays: "",
   defaultVendorSharePercent: "50",
   defaultTaxable: true,
+  vendorValueId: "",
+  tariffValueId: "",
+  pricePerSeat: "",
 };
 
 function termLabel(p: LicenseProduct): string {
@@ -45,6 +48,8 @@ export function ProductsPage() {
   const { isAdmin } = useAuth();
   const [products, setProducts] = useState<LicenseProduct[]>([]);
   const [categories, setCategories] = useState<DictionaryType | null>(null);
+  const [vendors, setVendors] = useState<DictionaryType | null>(null);
+  const [tariffs, setTariffs] = useState<DictionaryType | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -60,6 +65,8 @@ export function ProductsPage() {
     load();
     api.get<DictionaryType[]>("/dictionaries").then((res) => {
       setCategories(res.data.find((d) => d.code === "operation_category") ?? null);
+      setVendors(res.data.find((d) => d.code === "vendor") ?? null);
+      setTariffs(res.data.find((d) => d.code === "license_tariff") ?? null);
     });
   }, []);
 
@@ -79,6 +86,9 @@ export function ProductsPage() {
       defaultWorkDays: p.defaultWorkDays != null ? String(p.defaultWorkDays) : "",
       defaultVendorSharePercent: String(p.defaultVendorSharePercent),
       defaultTaxable: p.defaultTaxable,
+      vendorValueId: p.vendorValueId ?? "",
+      tariffValueId: p.tariffValueId ?? "",
+      pricePerSeat: p.pricePerSeat != null ? String(p.pricePerSeat) : "",
     });
     setEditingId(p.id);
     setFormOpen(true);
@@ -100,6 +110,9 @@ export function ProductsPage() {
       defaultWorkDays: form.type === "WORK" && form.defaultWorkDays ? Number(form.defaultWorkDays) : undefined,
       defaultVendorSharePercent: Number(form.defaultVendorSharePercent),
       defaultTaxable: form.defaultTaxable,
+      vendorValueId: form.type === "LICENSE" && form.vendorValueId ? form.vendorValueId : null,
+      tariffValueId: form.type === "LICENSE" && form.tariffValueId ? form.tariffValueId : null,
+      pricePerSeat: form.type === "LICENSE" && form.pricePerSeat ? Number(form.pricePerSeat) : null,
     };
     try {
       if (editingId) {
@@ -158,16 +171,35 @@ export function ProductsPage() {
       ),
     },
     {
+      key: "vendorTariff",
+      header: "Вендор / тариф",
+      hideBelow: "md",
+      render: (p) =>
+        p.vendorValue || p.tariffValue ? (
+          <span className="flex flex-wrap items-center gap-1">
+            {p.vendorValue && <Badge tone="accent">{p.vendorValue.name}</Badge>}
+            {p.tariffValue && <Badge>{p.tariffValue.name}</Badge>}
+          </span>
+        ) : (
+          <span className="text-ink-subtle">—</span>
+        ),
+    },
+    {
       key: "category",
       header: "Категория",
-      hideBelow: "lg",
+      hideBelow: "xl",
       render: (p) => <span className="text-ink-muted">{p.categoryValue?.name ?? "—"}</span>,
     },
     {
       key: "price",
       header: "Цена",
       align: "right",
-      render: (p) => <span className="font-medium text-ink">{formatMoney(p.defaultPrice)}</span>,
+      render: (p) => (
+        <span className="font-medium text-ink">
+          {formatMoney(p.defaultPrice)}
+          {p.pricePerSeat != null && <span className="block text-[11px] font-normal text-ink-subtle">{formatMoney(p.pricePerSeat)} за место</span>}
+        </span>
+      ),
     },
     { key: "term", header: "Срок", align: "right", hideBelow: "md", render: (p) => <span className="text-ink-muted">{termLabel(p)}</span> },
     {
@@ -234,6 +266,9 @@ export function ProductsPage() {
               meta={
                 <>
                   <Badge tone={p.type === "WORK" ? "accent" : "neutral"}>{p.type === "WORK" ? "работа" : "лицензия"}</Badge>
+                  {p.vendorValue && <Badge tone="accent">{p.vendorValue.name}</Badge>}
+                  {p.tariffValue && <Badge>{p.tariffValue.name}</Badge>}
+                  {p.pricePerSeat != null && <MetaItem label="За место">{formatMoney(p.pricePerSeat)}</MetaItem>}
                   <MetaItem label="Срок">{termLabel(p)}</MetaItem>
                   <MetaItem label="Вендору">{String(p.defaultVendorSharePercent)}%</MetaItem>
                   <StatusBadge label={p.isActive ? "Активен" : "Отключён"} tone={p.isActive ? "income" : "neutral"} />
@@ -362,6 +397,41 @@ export function ProductsPage() {
               required
             />
           </Field>
+
+          {form.type === "LICENSE" && (
+            <>
+              <Field label="Вендор">
+                <Select value={form.vendorValueId} onChange={(e) => setForm({ ...form, vendorValueId: e.target.value })}>
+                  <option value="">Не указан</option>
+                  {vendors?.values.filter((v) => v.isActive || v.id === form.vendorValueId).map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Тариф">
+                <Select value={form.tariffValueId} onChange={(e) => setForm({ ...form, tariffValueId: e.target.value })}>
+                  <option value="">Не указан</option>
+                  {tariffs?.values.filter((v) => v.isActive || v.id === form.tariffValueId).map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Цена за место в месяц" hint="Портфель лицензий сравнит с ней фактические сделки">
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  inputMode="decimal"
+                  value={form.pricePerSeat}
+                  onChange={(e) => setForm({ ...form, pricePerSeat: e.target.value })}
+                />
+              </Field>
+            </>
+          )}
 
           <div className="flex items-end pb-2.5">
             <Checkbox
