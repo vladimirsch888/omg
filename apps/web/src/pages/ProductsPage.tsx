@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { BookOpen, Package, Pencil, Plus, Trash2 } from "lucide-react";
+import { BookOpen, Package, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { api, errorMessage } from "../api/client";
 import { DictionaryType, LicenseProduct } from "../api/types";
 import { useAuth } from "../context/AuthContext";
@@ -13,6 +13,7 @@ import {
   DataTable,
   EmptyState,
   Field,
+  FilterBar,
   IconButton,
   Input,
   MetaItem,
@@ -57,6 +58,9 @@ export function ProductsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [vendorFilter, setVendorFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
 
   function load() {
     api
@@ -164,6 +168,18 @@ export function ProductsPage() {
     }
   }
 
+  // A hundred-line catalog after a vendor import needs narrowing; the
+  // list is already in memory, so filter on the client.
+  const q = search.trim().toLowerCase();
+  const visible = products.filter(
+    (p) =>
+      (!q || `${p.name} ${p.description ?? ""} ${p.tariffValue?.name ?? ""}`.toLowerCase().includes(q)) &&
+      (!vendorFilter || (vendorFilter === "none" ? !p.vendorValueId : p.vendorValueId === vendorFilter)) &&
+      (!typeFilter || p.type === typeFilter)
+  );
+  const vendorOptions = [...new Map(products.filter((p) => p.vendorValue).map((p) => [p.vendorValue!.id, p.vendorValue!.name])).entries()];
+  const isFiltered = Boolean(q || vendorFilter || typeFilter);
+
   const columns: Column<LicenseProduct>[] = [
     {
       key: "name",
@@ -268,9 +284,37 @@ export function ProductsPage() {
 
       <VendorCatalogModal open={catalogOpen} onClose={() => setCatalogOpen(false)} onImported={load} />
 
+      <FilterBar>
+        <Field label="Поиск" className="min-w-48 flex-1 sm:max-w-xs">
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-subtle" strokeWidth={1.8} />
+            <Input placeholder="Название, тариф или описание" className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+        </Field>
+        <Field label="Вендор">
+          <Select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)}>
+            <option value="">Все</option>
+            {vendorOptions.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+            <option value="none">Без вендора</option>
+          </Select>
+        </Field>
+        <Field label="Тип">
+          <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+            <option value="">Все</option>
+            <option value="LICENSE">Лицензии</option>
+            <option value="WORK">Работы</option>
+          </Select>
+        </Field>
+        <span className="pb-3 text-xs text-ink-subtle tnum">{visible.length} из {products.length}</span>
+      </FilterBar>
+
       <ListCard>
         <DataTable
-          rows={products}
+          rows={visible}
           columns={columns}
           getRowKey={(p) => p.id}
           renderCard={(p) => (
@@ -309,10 +353,10 @@ export function ProductsPage() {
           empty={
             <EmptyState
               icon={Package}
-              title="Продуктов пока нет"
-              description="Добавьте лицензии и работы, которые вы продаёте — они станут шаблонами для продаж и подписок."
+              title={isFiltered ? "Ничего не найдено" : "Продуктов пока нет"}
+              description={isFiltered ? "Попробуйте изменить поиск или фильтр." : "Добавьте лицензии и работы, которые вы продаёте — они станут шаблонами для продаж и подписок."}
               action={
-                isAdmin ? (
+                isAdmin && !isFiltered ? (
                   <Button variant="primary" icon={Plus} onClick={startCreate}>
                     Новый продукт
                   </Button>

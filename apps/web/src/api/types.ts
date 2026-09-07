@@ -185,14 +185,18 @@ export interface LicenseProduct {
 export interface CatalogVendor {
   code: string;
   name: string;
-  discounts: { months: number; percent: number }[];
+  /** Terms the vendor sells, in months, ascending. */
+  periods: number[];
+  defaultMonths: number;
   items: {
     key: string;
     name: string;
     group: string;
     tariffCode: string;
     tariffName: string;
-    pricePerMonth: number;
+    kind: "paid" | "free" | "usage";
+    prices: { months: number; price: number }[];
+    pricePerSeat: number | null;
     features: string[];
     imported: { months: number; id: string; name: string; price: number; isActive: boolean }[];
   }[];

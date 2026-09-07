@@ -21,11 +21,12 @@ vendorCatalogRouter.get("/", async (c) => {
     VENDOR_CATALOG.map((v) => ({
       code: v.code,
       name: v.name,
-      discounts: v.discounts,
+      periods: v.periods,
+      defaultMonths: v.defaultMonths,
       items: v.items.map((i) => ({
         ...i,
-        imported: [1, ...v.discounts.map((d) => d.months)]
-          .map((months) => {
+        imported: i.prices
+          .map(({ months }) => {
             const p = byKey.get(`${v.code}:${i.key}:${months}`);
             return p ? { months, id: p.id, name: p.name, price: Number(p.defaultPrice), isActive: p.isActive } : null;
           })

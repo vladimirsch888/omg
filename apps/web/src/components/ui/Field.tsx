@@ -79,11 +79,12 @@ export function Checkbox({
   const id = useId();
   return (
     <div className={`flex items-center gap-2.5 ${className}`}>
+      {/* The tick is drawn by the .ui-checkbox:checked rule in index.css — an
+          inline background-image would show on unchecked boxes too. */}
       <input
         id={id}
         type="checkbox"
-        className="size-4.5 shrink-0 cursor-pointer appearance-none rounded-[5px] border border-line-strong bg-raised transition-colors duration-150 outline-none checked:border-accent checked:bg-accent focus-visible:ring-2 focus-visible:ring-accent/40 checked:bg-[length:0.8rem] checked:bg-center checked:bg-no-repeat"
-        style={checkStyle}
+        className="ui-checkbox size-4.5 shrink-0 cursor-pointer appearance-none rounded-[5px] border border-line-strong bg-raised transition-colors duration-150 outline-none checked:border-accent checked:bg-accent focus-visible:ring-2 focus-visible:ring-accent/40"
         {...rest}
       />
       <label htmlFor={id} className="cursor-pointer text-sm text-ink select-none">
@@ -93,10 +94,6 @@ export function Checkbox({
   );
 }
 
-const checkStyle = {
-  backgroundImage:
-    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%230f2b28' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3.5 8.5 3 3 6-6.5'/%3E%3C/svg%3E\")",
-};
 
 /** Read-only value shown where an input would be (e.g. immutable fields on edit). */
 export function ReadonlyValue({ label, value }: { label: string; value: ReactNode }) {

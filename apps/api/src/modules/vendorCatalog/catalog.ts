@@ -1,3 +1,4 @@
+import { NOVA_WIDGETS } from "./nova";
 import { WAZZUP_DISCOUNTS, WAZZUP_TARIFFS, type WazzupTariff } from "./wazzup";
 
 /**
@@ -7,15 +8,20 @@ import { WAZZUP_DISCOUNTS, WAZZUP_TARIFFS, type WazzupTariff } from "./wazzup";
  * LicenseProduct rows (or updates the ones imported earlier).
  */
 export interface CatalogItem {
-  /** Stable id inside the vendor: "whatsapp:max". */
+  /** Stable id inside the vendor: "whatsapp:max", "widget:formuly_3_0". */
   key: string;
   name: string;
-  /** Channel / product line ("WhatsApp"), used for grouping in the dialog. */
+  /** Channel / section ("WhatsApp", "Платные виджеты"), used for grouping in the dialog. */
   group: string;
-  /** Tariff code for the license_tariff dictionary: "max", "start", … */
+  /** Tariff code for the license_tariff dictionary: "max", "start", "widget", … */
   tariffCode: string;
   tariffName: string;
-  pricePerMonth: number;
+  /** paid — has prices; free — 0 ₽; usage — billed by consumption (AI tokens), imported at 0 ₽. */
+  kind: "paid" | "free" | "usage";
+  /** Price per term, in roubles, for each term the vendor sells. */
+  prices: { months: number; price: number }[];
+  /** Monthly price of one seat/channel when the vendor bills per unit; null = flat. */
+  pricePerSeat: number | null;
   /** Human-readable inclusions, joined into the product description. */
   features: string[];
 }
@@ -23,8 +29,10 @@ export interface CatalogItem {
 export interface CatalogVendor {
   code: string;
   name: string;
-  /** Percent off when the client pays for the whole period. */
-  discounts: { months: number; percent: number }[];
+  /** Every term that appears in the items, ascending. */
+  periods: number[];
+  /** Term preselected in the import dialog. */
+  defaultMonths: number;
   /** Operation category code (operation_category dictionary) to book income under, if present. */
   categoryCode: string;
   items: CatalogItem[];
@@ -36,6 +44,8 @@ const slug = (s: string) =>
     .replace(/[^a-zа-я0-9]+/gi, "_")
     .replace(/^_|_$/g, "");
 
+// ---------------------------------------------------------------- Wazzup
+
 function wazzupFeatures(t: WazzupTariff): string[] {
   const out: string[] = [];
   out.push(t.dialogs === null ? "безлимит диалогов" : `${t.dialogs} диалогов`);
@@ -45,13 +55,20 @@ function wazzupFeatures(t: WazzupTariff): string[] {
   return out;
 }
 
+/** Wazzup quotes a monthly price per channel; longer terms are that price minus a discount. */
+function wazzupPrices(monthly: number): CatalogItem["prices"] {
+  return [
+    { months: 1, price: monthly },
+    { months: 6, price: Math.round(monthly * 6 * (1 - WAZZUP_DISCOUNTS.halfYearPercent / 100)) },
+    { months: 12, price: Math.round(monthly * 12 * (1 - WAZZUP_DISCOUNTS.yearPercent / 100)) },
+  ];
+}
+
 const wazzup: CatalogVendor = {
   code: "wazzup",
   name: "Wazzup",
-  discounts: [
-    { months: 6, percent: WAZZUP_DISCOUNTS.halfYearPercent },
-    { months: 12, percent: WAZZUP_DISCOUNTS.yearPercent },
-  ],
+  periods: [1, 6, 12],
+  defaultMonths: 1,
   categoryCode: "license_wazzup",
   items: WAZZUP_TARIFFS.map((t) => ({
     key: `${slug(t.channel)}:${t.plan.toLowerCase()}`,
@@ -59,12 +76,46 @@ const wazzup: CatalogVendor = {
     group: t.channel,
     tariffCode: t.plan.toLowerCase(),
     tariffName: t.plan,
-    pricePerMonth: t.pricePerMonth,
+    kind: t.pricePerMonth === 0 ? "free" : "paid",
+    prices: wazzupPrices(t.pricePerMonth),
+    pricePerSeat: t.pricePerMonth,
     features: wazzupFeatures(t),
   })),
 };
 
-export const VENDOR_CATALOG: CatalogVendor[] = [wazzup];
+// ------------------------------------------------------------------ NOVA
+
+const novaGroup = { paid: "Платные виджеты", free: "Бесплатные виджеты", usage: "AI-виджеты (оплата по токенам)" } as const;
+
+const nova: CatalogVendor = {
+  code: "nova",
+  name: "NOVA",
+  periods: [6, 12, 24],
+  defaultMonths: 12,
+  categoryCode: "license_nova",
+  items: NOVA_WIDGETS.map((w) => ({
+    key: `widget:${slug(w.name)}`,
+    name: `NOVA ${w.name}`,
+    group: novaGroup[w.kind],
+    tariffCode: "widget",
+    tariffName: "Виджет",
+    kind: w.kind,
+    prices: w.prices
+      ? [
+          { months: 6, price: w.prices[6] },
+          { months: 12, price: w.prices[12] },
+          { months: 24, price: w.prices[24] },
+        ]
+      : [6, 12, 24].map((months) => ({ months, price: 0 })),
+    pricePerSeat: null,
+    features: [
+      w.kind === "free" ? "бесплатный виджет" : w.kind === "usage" ? "оплата по токенам" : "виджет для amoCRM",
+      ...(w.renewalForReview ? ["продление за отзыв"] : []),
+    ],
+  })),
+};
+
+export const VENDOR_CATALOG: CatalogVendor[] = [wazzup, nova];
 
 export function findVendor(code: string): CatalogVendor | undefined {
   return VENDOR_CATALOG.find((v) => v.code === code);
@@ -76,33 +127,33 @@ export interface PlannedProduct {
   tariffCode: string;
   tariffName: string;
   durationMonths: number;
-  /** Price for the whole period (per channel), after the period discount. */
+  /** Price for the whole term. */
   price: number;
-  pricePerSeat: number;
+  pricePerSeat: number | null;
   description: string;
 }
 
 /**
  * Expands the chosen catalog rows into the products to create: one per
- * item and period. A yearly product's price is 12 × monthly minus the
- * vendor's discount, rounded to the rouble.
+ * item and term the vendor actually sells (a term the item has no price
+ * for is skipped, so asking NOVA for "1 month" yields nothing).
  */
 export function planProducts(vendor: CatalogVendor, keys: string[] | null, periods: number[]): PlannedProduct[] {
   const items = keys ? vendor.items.filter((i) => keys.includes(i.key)) : vendor.items;
   const out: PlannedProduct[] = [];
   for (const item of items) {
     for (const months of periods) {
-      const discount = vendor.discounts.find((d) => d.months === months)?.percent ?? 0;
-      const price = Math.round(item.pricePerMonth * months * (1 - discount / 100));
+      const term = item.prices.find((p) => p.months === months);
+      if (!term) continue;
       out.push({
         catalogKey: `${vendor.code}:${item.key}:${months}`,
         name: months === 1 ? item.name : `${item.name}, ${months} мес.`,
         tariffCode: item.tariffCode,
         tariffName: item.tariffName,
         durationMonths: months,
-        price,
-        pricePerSeat: item.pricePerMonth,
-        description: `${item.features.join(", ")}${discount ? `; оплата за ${months} мес. со скидкой ${discount} %` : ""}`,
+        price: term.price,
+        pricePerSeat: item.pricePerSeat,
+        description: item.features.join(", "),
       });
     }
   }

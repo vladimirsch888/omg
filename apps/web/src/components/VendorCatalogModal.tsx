@@ -16,7 +16,7 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
   const [vendors, setVendors] = useState<CatalogVendor[] | null>(null);
   const [vendorCode, setVendorCode] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [periods, setPeriods] = useState<number[]>([1]);
+  const [periods, setPeriods] = useState<number[]>([]);
   const [share, setShare] = useState("50");
   const [busy, setBusy] = useState(false);
 
@@ -28,23 +28,32 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
       .then((res) => {
         setVendors(res.data);
         const first = res.data[0];
-        if (first) {
-          setVendorCode(first.code);
-          // Preselect what isn't in Продукты yet; already-imported rows stay
-          // unchecked so a casual re-import doesn't touch edited prices.
-          setSelected(new Set(first.items.filter((i) => i.imported.length === 0).map((i) => i.key)));
-        }
+        if (first) selectVendor(first);
       })
       .catch((err) => ui.toast(errorMessage(err, "Не удалось загрузить каталог"), "error"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  /**
+   * Switching vendor resets the selection: paid rows that aren't in
+   * Продукты yet get checked (free and usage-billed ones stay off — they
+   * are rarely sold as products), and the vendor's usual term is on.
+   */
+  function selectVendor(v: CatalogVendor) {
+    setVendorCode(v.code);
+    setSelected(new Set(v.items.filter((i) => i.kind === "paid" && i.imported.length === 0).map((i) => i.key)));
+    setPeriods([v.defaultMonths]);
+  }
 
   const vendor = vendors?.find((v) => v.code === vendorCode) ?? null;
   const groups = useMemo(() => {
     if (!vendor) return [];
     const map = new Map<string, CatalogVendor["items"]>();
     for (const item of vendor.items) map.set(item.group, [...(map.get(item.group) ?? []), item]);
-    return [...map];
+    // Paid rows first: those are what gets imported; free and usage-billed
+    // sections sit underneath for the rare case they're wanted.
+    const rank = { paid: 0, free: 1, usage: 2 } as const;
+    return [...map].sort((a, b) => rank[a[1][0].kind] - rank[b[1][0].kind]);
   }, [vendor]);
 
   const toggle = (key: string) =>
@@ -67,7 +76,9 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
   const togglePeriod = (months: number) =>
     setPeriods((prev) => (prev.includes(months) ? prev.filter((m) => m !== months) : [...prev, months].sort((a, b) => a - b)));
 
-  const plannedCount = selected.size * periods.length;
+  const plannedCount = vendor
+    ? vendor.items.filter((i) => selected.has(i.key)).reduce((n, i) => n + i.prices.filter((p) => periods.includes(p.months)).length, 0)
+    : 0;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -120,9 +131,8 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
               <Select
                 value={vendorCode}
                 onChange={(e) => {
-                  setVendorCode(e.target.value);
                   const v = vendors.find((x) => x.code === e.target.value);
-                  setSelected(new Set(v?.items.filter((i) => i.imported.length === 0).map((i) => i.key) ?? []));
+                  if (v) selectVendor(v);
                 }}
               >
                 {vendors.map((v) => (
@@ -139,14 +149,8 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
               <div className="flex flex-col gap-1.5">
                 <span className="text-xs font-medium text-ink-muted">Периоды оплаты</span>
                 <div className="flex flex-col gap-1.5 pt-1">
-                  <Checkbox label="Месяц" checked={periods.includes(1)} onChange={() => togglePeriod(1)} />
-                  {vendor.discounts.map((d) => (
-                    <Checkbox
-                      key={d.months}
-                      label={`${d.months} мес. (−${d.percent} %)`}
-                      checked={periods.includes(d.months)}
-                      onChange={() => togglePeriod(d.months)}
-                    />
+                  {vendor.periods.map((m) => (
+                    <Checkbox key={m} label={m === 1 ? "Месяц" : `${m} мес.`} checked={periods.includes(m)} onChange={() => togglePeriod(m)} />
                   ))}
                 </div>
               </div>
@@ -176,16 +180,24 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
                               {item.imported.map((p) => (
                                 <Badge key={p.months} tone={p.isActive ? "income" : "neutral"}>
                                   в продуктах{p.months > 1 ? ` (${p.months} мес.)` : ""}
-                                  {p.price !== Math.round(item.pricePerMonth * p.months * (1 - (vendor.discounts.find((d) => d.months === p.months)?.percent ?? 0) / 100))
-                                    ? ` · цена ${formatMoney(p.price)}`
-                                    : ""}
+                                  {p.price !== (item.prices.find((x) => x.months === p.months)?.price ?? p.price) ? ` · цена ${formatMoney(p.price)}` : ""}
                                 </Badge>
                               ))}
                             </div>
                             <div className="mt-0.5 text-xs text-ink-muted">{item.features.join(", ")}</div>
                           </div>
-                          <span className="shrink-0 text-sm font-medium text-ink tnum">
-                            {item.pricePerMonth === 0 ? "бесплатно" : `${formatMoney(item.pricePerMonth)}/мес`}
+                          <span className="shrink-0 text-right text-xs text-ink-muted tnum">
+                            {item.kind === "free" ? (
+                              <span className="text-sm font-medium text-ink">бесплатно</span>
+                            ) : item.kind === "usage" ? (
+                              <span className="text-sm font-medium text-ink">по токенам</span>
+                            ) : (
+                              item.prices.map((p) => (
+                                <span key={p.months} className={`block ${periods.includes(p.months) ? "font-medium text-ink" : ""}`}>
+                                  {p.months === 1 ? "мес." : `${p.months} мес.`} {formatMoney(p.price)}
+                                </span>
+                              ))
+                            )}
                           </span>
                         </li>
                       ))}
