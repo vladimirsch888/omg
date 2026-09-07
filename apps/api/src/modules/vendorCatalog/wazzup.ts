@@ -38,4 +38,13 @@ export const WAZZUP_TARIFFS: WazzupTariff[] = [
   { channel: "MAX", plan: "INBOX", pricePerMonth: 2000, dialogs: 500, groupChats: true, audioTranscription: false },
   { channel: "MAX", plan: "PRO", pricePerMonth: 4000, dialogs: 500, groupChats: true, audioTranscription: false },
   { channel: "MAX", plan: "MAX", pricePerMonth: 6000, dialogs: null, groupChats: true, audioTranscription: true },
+  // ВКонтакте
+  { channel: "ВКонтакте", plan: "FREE", pricePerMonth: 0, writeFirst: false, dialogs: 500, audioTranscription: false },
+  { channel: "ВКонтакте", plan: "MAX", pricePerMonth: 4000, writeFirst: false, dialogs: null, audioTranscription: true },
+  // Instagram
+  { channel: "Instagram", plan: "INBOX", pricePerMonth: 2000, writeFirst: false, dialogs: 500, groupChats: false, audioTranscription: false },
+  { channel: "Instagram", plan: "MAX", pricePerMonth: 4000, writeFirst: false, dialogs: null, groupChats: false, audioTranscription: true },
+  // Авито
+  { channel: "Авито", plan: "INBOX", pricePerMonth: 2000, writeFirst: false, dialogs: 500, groupChats: false, audioTranscription: false },
+  { channel: "Авито", plan: "MAX", pricePerMonth: 4000, writeFirst: false, dialogs: null, groupChats: false, audioTranscription: false },
 ];
