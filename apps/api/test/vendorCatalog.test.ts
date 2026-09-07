@@ -10,6 +10,8 @@ describe("vendor catalog — Wazzup", () => {
     const groups = new Set(wazzup.items.map((i) => i.group));
     expect([...groups]).toEqual(["WhatsApp", "WABA", "Telegram Personal", "Telegram Bot", "MAX", "ВКонтакте", "Instagram", "Авито"]);
     expect(wazzup.items).toHaveLength(21);
+    // Wazzup is always a 50/50 partner split.
+    expect(wazzup.vendorSharePercent).toBe(50);
     expect(VENDOR_CATALOG.map((v) => v.code)).toEqual(["amocrm", "wazzup", "nova"]);
   });
 

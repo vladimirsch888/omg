@@ -18,6 +18,7 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [periods, setPeriods] = useState<number[]>([]);
   const [share, setShare] = useState("50");
+  const [updateShare, setUpdateShare] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -44,6 +45,7 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
     setVendorCode(v.code);
     setSelected(new Set(v.items.filter((i) => i.recommended && i.imported.length === 0).map((i) => i.key)));
     setPeriods([v.defaultMonths]);
+    setShare(String(v.vendorSharePercent));
   }
 
   const vendor = vendors?.find((v) => v.code === vendorCode) ?? null;
@@ -94,6 +96,7 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
         keys: [...selected],
         periods,
         vendorSharePercent: Number(share),
+        updateVendorShare: updateShare,
       });
       ui.toast(`Каталог ${vendor.name}: создано ${res.data.created}, обновлено ${res.data.updated}`, "success");
       onImported();
@@ -146,7 +149,7 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
                 ))}
               </Select>
             </Field>
-            <Field label="Доля вендора, %" hint="Только для новых продуктов">
+            <Field label="Доля вендора, %" hint="Подставлена из каталога">
               <Input type="number" min="0" max="100" inputMode="numeric" value={share} onChange={(e) => setShare(e.target.value)} required />
             </Field>
             {vendor && (
@@ -160,6 +163,14 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
               </div>
             )}
           </div>
+
+          {vendor && (
+            <Checkbox
+              label={`Обновить долю вендора (${share} %) у уже импортированных продуктов`}
+              checked={updateShare}
+              onChange={(e) => setUpdateShare(e.target.checked)}
+            />
+          )}
 
           {vendor && (
             <div className="flex flex-col gap-3">
@@ -185,6 +196,7 @@ export function VendorCatalogModal({ open, onClose, onImported }: { open: boolea
                                 <Badge key={p.months} tone={p.isActive ? "income" : "neutral"}>
                                   в продуктах{p.months > 1 ? ` (${p.months} мес.)` : ""}
                                   {p.price !== (item.prices.find((x) => x.months === p.months)?.price ?? p.price) ? ` · цена ${formatMoney(p.price)}` : ""}
+                                  {p.vendorSharePercent !== Number(share) ? ` · вендору ${p.vendorSharePercent} %` : ""}
                                 </Badge>
                               ))}
                             </div>

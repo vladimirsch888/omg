@@ -188,6 +188,8 @@ export interface CatalogVendor {
   /** Terms the vendor sells, in months, ascending. */
   periods: number[];
   defaultMonths: number;
+  /** Vendor's share of the price, prefilled in the import dialog. */
+  vendorSharePercent: number;
   items: {
     key: string;
     name: string;
@@ -200,7 +202,7 @@ export interface CatalogVendor {
     features: string[];
     /** Ticked by default in the import dialog. */
     recommended: boolean;
-    imported: { months: number; id: string; name: string; price: number; isActive: boolean }[];
+    imported: { months: number; id: string; name: string; price: number; isActive: boolean; vendorSharePercent: number }[];
   }[];
 }
 

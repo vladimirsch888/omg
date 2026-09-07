@@ -22,8 +22,10 @@ async function ensureValue(organizationId: string, typeCode: string, typeName: s
 /**
  * Turns a vendor's built-in price list into LicenseProduct rows. Re-running
  * updates the price, description, vendor and tariff of products imported
- * earlier (matched by catalogKey) and leaves their name, vendor share and
- * active flag alone — those are the owner's to edit.
+ * earlier (matched by catalogKey) and leaves their name and active flag
+ * alone — those are the owner's to edit. The vendor share is left alone
+ * too unless `updateVendorShare` says otherwise: it can be negotiated per
+ * deal, so overwriting it silently would lose that.
  */
 export async function importVendorCatalog(input: {
   organizationId: string;
@@ -31,6 +33,7 @@ export async function importVendorCatalog(input: {
   keys: string[] | null;
   periods: number[];
   vendorSharePercent: number;
+  updateVendorShare?: boolean;
 }): Promise<ImportResult> {
   const vendor = findVendor(input.vendorCode);
   if (!vendor) throw new AppError(404, "Вендор не найден в каталоге");
@@ -63,7 +66,10 @@ export async function importVendorCatalog(input: {
       description: p.description,
     };
     if (existing) {
-      await prisma.licenseProduct.update({ where: { id: existing.id }, data: shared });
+      await prisma.licenseProduct.update({
+        where: { id: existing.id },
+        data: input.updateVendorShare ? { ...shared, defaultVendorSharePercent: input.vendorSharePercent } : shared,
+      });
       result.updated++;
       result.products.push({ id: existing.id, name: existing.name, action: "updated" });
     } else {

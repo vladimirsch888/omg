@@ -14,7 +14,7 @@ vendorCatalogRouter.get("/", async (c) => {
   const auth = c.get("auth");
   const imported = await prisma.licenseProduct.findMany({
     where: { organizationId: auth.organizationId, catalogKey: { not: null } },
-    select: { catalogKey: true, id: true, name: true, defaultPrice: true, isActive: true },
+    select: { catalogKey: true, id: true, name: true, defaultPrice: true, isActive: true, defaultVendorSharePercent: true },
   });
   const byKey = new Map(imported.map((p) => [p.catalogKey!, p]));
   return c.json(
@@ -23,12 +23,22 @@ vendorCatalogRouter.get("/", async (c) => {
       name: v.name,
       periods: v.periods,
       defaultMonths: v.defaultMonths,
+      vendorSharePercent: v.vendorSharePercent,
       items: v.items.map((i) => ({
         ...i,
         imported: i.prices
           .map(({ months }) => {
             const p = byKey.get(`${v.code}:${i.key}:${months}`);
-            return p ? { months, id: p.id, name: p.name, price: Number(p.defaultPrice), isActive: p.isActive } : null;
+            return p
+              ? {
+                  months,
+                  id: p.id,
+                  name: p.name,
+                  price: Number(p.defaultPrice),
+                  isActive: p.isActive,
+                  vendorSharePercent: Number(p.defaultVendorSharePercent),
+                }
+              : null;
           })
           .filter((x): x is NonNullable<typeof x> => x !== null),
       })),
@@ -42,6 +52,8 @@ const importSchema = z.object({
   keys: z.array(z.string().min(1).max(80)).max(500).optional().nullable(),
   periods: z.array(z.number().int().min(1).max(120)).min(1).max(5).default([1]),
   vendorSharePercent: z.number().min(0).max(100).default(50),
+  /** Also rewrite the share on products imported earlier (off by default: it may have been negotiated per deal). */
+  updateVendorShare: z.boolean().default(false),
 });
 
 /** Preview without writing: what would be created or updated. */
@@ -61,6 +73,7 @@ vendorCatalogRouter.post("/import", requireRole("OWNER", "ADMIN"), async (c) => 
     keys: body.keys ?? null,
     periods: body.periods,
     vendorSharePercent: body.vendorSharePercent,
+    updateVendorShare: body.updateVendorShare,
   });
   audit({
     organizationId: auth.organizationId,

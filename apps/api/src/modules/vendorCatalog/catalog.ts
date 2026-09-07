@@ -40,6 +40,12 @@ export interface CatalogVendor {
   periods: number[];
   /** Term preselected in the import dialog. */
   defaultMonths: number;
+  /**
+   * Share of the price that goes to the vendor, prefilled in the import
+   * dialog. Wazzup is always a 50/50 partner split; the others are the
+   * plain default until their real split is confirmed.
+   */
+  vendorSharePercent: number;
   /** Operation category code (operation_category dictionary) to book income under, if present. */
   categoryCode: string;
   items: CatalogItem[];
@@ -76,6 +82,7 @@ const wazzup: CatalogVendor = {
   name: "Wazzup",
   periods: [1, 6, 12],
   defaultMonths: 1,
+  vendorSharePercent: 50,
   categoryCode: "license_wazzup",
   items: WAZZUP_TARIFFS.map((t) => ({
     key: `${slug(t.channel)}:${t.plan.toLowerCase()}`,
@@ -100,6 +107,7 @@ const nova: CatalogVendor = {
   name: "NOVA",
   periods: [6, 12, 24],
   defaultMonths: 12,
+  vendorSharePercent: 50,
   categoryCode: "license_nova",
   items: NOVA_WIDGETS.map((w) => ({
     key: `widget:${slug(w.name)}`,
@@ -133,6 +141,7 @@ const amocrm: CatalogVendor = {
   name: "amoCRM",
   periods: AMOCRM_TERMS,
   defaultMonths: 12,
+  vendorSharePercent: 50,
   categoryCode: "license_amocrm",
   items: AMOCRM_PLANS.map((p) => {
     const current = p.validFrom === AMOCRM_CURRENT_FROM;
