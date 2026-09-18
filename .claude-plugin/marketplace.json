@@ -1,0 +1,14 @@
+{
+  "name": "my-skills",
+  "owner": {
+    "name": "vladimirsch888"
+  },
+  "description": "Личный маркетплейс плагинов и скиллов для Claude Code",
+  "plugins": [
+    {
+      "name": "saas-kit",
+      "source": "./plugins/saas-kit",
+      "description": "Общие скиллы для моих SaaS-проектов"
+    }
+  ]
+}
