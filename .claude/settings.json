@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "my-skills": {
+      "source": {
+        "source": "github",
+        "repo": "vladimirsch888/my-claude-skills"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "saas-kit@my-skills": true
+  }
+}
