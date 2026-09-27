@@ -166,7 +166,7 @@
 
   @media (max-width: 420px) {
     .pct { font-size: 19px; }
-    .best .chip small { display: none; }
+    .best .chip small:not(.keep) { display: none; }
   }
 </style>
 
@@ -266,6 +266,16 @@
       x.items.sort(function (a, b) { return b.percent - a.percent || sortCards(a.card, b.card); });
       return x;
     }).sort(function (a, b) { return coll.compare(a.name, b.name); });
+
+    // A card's rate on any purchase can beat a category offer: show it as the better choice.
+    catList.forEach(function (x) {
+      var top = x.items[0].percent;
+      baseCards.forEach(function (b) {
+        var has = x.items.some(function (i) { return i.card.id === b.card.id; });
+        if (!has && b.percent > top) x.items.push({ card: b.card, percent: b.percent, base: true });
+      });
+      x.items.sort(function (a, b) { return b.percent - a.percent || sortCards(a.card, b.card); });
+    });
   }
 
   // Best card for spending outside any category.
@@ -307,14 +317,14 @@
       var ties = c.items.filter(function (i) { return i.percent === top; });
       var rest = c.items.filter(function (i) { return i.percent !== top; });
       var bestChips = ties.map(function (i) {
-        return '<span class="chip"><span class="best-label">' + swatch(i.card) + esc(i.card.bank) + "</span><small>" + esc(i.card.name) + "</small></span>";
+        return '<span class="chip"><span class="best-label">' + swatch(i.card) + esc(i.card.bank) + "</span><small' + (i.base ? ' class="keep"' : "") + ">" + esc(i.base ? "на все покупки" + (i.card.baseNote ? ", " + i.card.baseNote : "") : i.card.name) + "</small></span>";
       }).join("");
       html.push(
         '<article class="cat"><div class="cat-head"><div><div class="cat-name">' + esc(c.name) + "</div>" +
         (c.notes.length ? '<div class="cat-note">' + esc(c.notes.join("; ")) + "</div>" : "") +
         '</div><div class="best">' + bestChips + '<span class="pct">' + fmt(top) + "</span></div></div>" +
         (rest.length ? '<div class="others">' + rest.map(function (i) {
-          return '<span class="other">' + swatch(i.card) + esc(cardLabel(i.card)) + " <b>" + fmt(i.percent) + "</b></span>";
+          return '<span class="other">' + swatch(i.card) + esc(cardLabel(i.card)) + (i.base ? " · на всё" : "") + " <b>" + fmt(i.percent) + "</b></span>";
         }).join("") + "</div>" : "") +
         "</article>"
       );

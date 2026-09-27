@@ -9,8 +9,9 @@ window.CASHBACK = {
   demo: false,
   updated: "2026-09-27",
   cards: [
-    { id: "yandex-pay", bank: "Яндекс Банк", name: "Карта Пэй", color: "#FFCC00", base: 1, baseNote: "покупки на кассе", unit: "баллы Плюса" },
-    { id: "alfa", bank: "Альфа-Банк", name: "Альфа-Карта", color: "#EF3124" }
+    { id: "yandex-pay", bank: "Яндекс Банк", name: "Карта Пэй", color: "#7B4DFF", base: 1, baseNote: "покупки на кассе", unit: "баллы Плюса" },
+    { id: "alfa", bank: "Альфа-Банк", name: "Альфа-Карта", color: "#EF3124" },
+    { id: "raif", bank: "Райффайзенбанк", name: "Карта с кэшбэком", color: "#FEE600", base: 1.5 }
   ],
   offers: [
     // Яндекс Банк — сентябрь
@@ -31,6 +32,11 @@ window.CASHBACK = {
     { card: "alfa", month: "2026-10", category: "Еаптека", percent: 12, note: "онлайн-аптека" },
     { card: "alfa", month: "2026-10", category: "Кафе и рестораны", percent: 4 },
     { card: "alfa", month: "2026-10", category: "Продукты", percent: 1 },
-    { card: "alfa", month: "2026-10", category: "Животные", percent: 5, note: "зоомагазины и ветклиники" }
+    { card: "alfa", month: "2026-10", category: "Животные", percent: 5, note: "зоомагазины и ветклиники" },
+
+    // Райффайзенбанк — партнёры с повышенным кэшбэком (процент «до»)
+    { card: "raif", category: "Докторслон", percent: 10, note: "кэшбэк до 10%, партнёр" },
+    { card: "raif", category: "Domino Pizza", percent: 3, note: "кэшбэк до 3%, партнёр" },
+    { card: "raif", category: "2 берега", percent: 4, note: "кэшбэк до 4%, партнёр" }
   ]
 };
