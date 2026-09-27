@@ -11,7 +11,8 @@ window.CASHBACK = {
   cards: [
     { id: "yandex-pay", bank: "Яндекс Банк", name: "Карта Пэй", color: "#7B4DFF", base: 1, baseNote: "покупки на кассе", unit: "баллы Плюса" },
     { id: "alfa", bank: "Альфа-Банк", name: "Альфа-Карта", color: "#EF3124" },
-    { id: "raif", bank: "Райффайзенбанк", name: "Карта с кэшбэком", color: "#FEE600", base: 1.5 }
+    { id: "raif", bank: "Райффайзенбанк", name: "Карта с кэшбэком", color: "#FEE600", base: 1.5 },
+    { id: "otp", bank: "ОТП Банк", name: "Карта", color: "#AEEA00", base: 1 }
   ],
   offers: [
     // Яндекс Банк — сентябрь
@@ -37,6 +38,16 @@ window.CASHBACK = {
     // Райффайзенбанк — партнёры с повышенным кэшбэком (процент «до»)
     { card: "raif", category: "Докторслон", percent: 10, note: "кэшбэк до 10%, партнёр" },
     { card: "raif", category: "Domino Pizza", percent: 3, note: "кэшбэк до 3%, партнёр" },
-    { card: "raif", category: "2 берега", percent: 4, note: "кэшбэк до 4%, партнёр" }
+    { card: "raif", category: "2 берега", percent: 4, note: "кэшбэк до 4%, партнёр" },
+
+    // ОТП Банк — сентябрь
+    { card: "otp", month: "2026-09", category: "АЗС", percent: 5 },
+    { card: "otp", month: "2026-09", category: "Медицина", percent: 5, note: "здоровье и медицина" },
+    { card: "otp", month: "2026-09", category: "Аптеки", percent: 2 },
+
+    // ОТП Банк — октябрь
+    { card: "otp", month: "2026-10", category: "Цифровые товары", percent: 5 },
+    { card: "otp", month: "2026-10", category: "Фастфуд", percent: 5 },
+    { card: "otp", month: "2026-10", category: "Автозапчасти и аксессуары", percent: 5 }
   ]
 };
