@@ -60,8 +60,13 @@
   header { display: grid; gap: 12px; }
   .title-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
   h1 { font: 700 22px/1.2 var(--display); margin: 0; letter-spacing: -.01em; text-wrap: balance; }
-  .period { color: var(--muted); font-size: 13px; }
-  .period b { color: var(--ink); font-weight: 600; }
+  .months { display: flex; gap: 6px; flex-wrap: wrap; }
+  .month {
+    font: inherit; font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer;
+    background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px;
+  }
+  .month[aria-selected="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+  .month:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
   .demo {
     background: var(--warn-bg); color: var(--warn-ink);
@@ -169,7 +174,7 @@
   <header>
     <div class="title-row">
       <h1>Кэшбэк-кошелёк</h1>
-      <div class="period" id="period"></div>
+      <div class="months" id="months" role="tablist" aria-label="Месяц"></div>
     </div>
     <div class="demo" id="demo" hidden>Это пример. Пришлите скриншоты категорий кэшбэка из банков, и здесь появятся ваши карты.</div>
   </header>
@@ -194,15 +199,22 @@
   var cardsById = {};
   D.cards.forEach(function (c) { cardsById[c.id] = c; });
 
-  // Drop offers that have ended; show the end date of temporary ones next to the note.
-  var today = new Date(); today.setHours(0, 0, 0, 0);
-  D.offers = D.offers.filter(function (o) {
-    return !o.until || new Date(o.until + "T23:59:59") >= today;
-  }).map(function (o) {
+  // Show the end date of temporary offers next to the note.
+  var ALL = D.offers.map(function (o) {
     if (!o.until) return o;
     var d = new Date(o.until + "T00:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
     return Object.assign({}, o, { note: (o.note ? o.note + " · " : "") + "до " + d });
   });
+
+  // Months that have their own categories ("2026-09"); offers without a month apply every month.
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var curMonth = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0");
+  var months = ALL.map(function (o) { return o.month; }).filter(function (m, i, a) { return m && a.indexOf(m) === i; }).sort();
+  var month = months.indexOf(curMonth) !== -1 ? curMonth : (months.filter(function (m) { return m > curMonth; })[0] || months[months.length - 1] || null);
+  function monthName(m) {
+    var d = new Date(m + "-01T00:00:00");
+    return d.toLocaleDateString("ru-RU", { month: "long" });
+  }
 
   // Everyday words mapped to the category names banks use.
   var SYN = {
@@ -232,20 +244,29 @@
   function swatch(c) { return '<span class="swatch" style="--c:' + esc(c.color) + '"></span>'; }
   function sortCards(a, b) { return coll.compare(a.bank, b.bank) || coll.compare(a.name, b.name); }
 
-  // Group offers by category.
-  var cats = {};
-  D.offers.forEach(function (o) {
-    var c = cardsById[o.card];
-    if (!c) return;
-    var key = o.category.trim();
-    (cats[key] = cats[key] || { name: key, notes: [], items: [] }).items.push({ card: c, percent: o.percent, note: o.note });
-    if (o.note) cats[key].notes.push(o.note);
-  });
-  var catList = Object.keys(cats).map(function (k) {
-    var x = cats[k];
-    x.items.sort(function (a, b) { return b.percent - a.percent || sortCards(a.card, b.card); });
-    return x;
-  }).sort(function (a, b) { return coll.compare(a.name, b.name); });
+  var offers, cats, catList;
+  function build() {
+    var mStart = month ? new Date(month + "-01T00:00:00") : today;
+    var floor = mStart > today ? mStart : today;
+    // Offers for the chosen month that have not ended yet.
+    offers = ALL.filter(function (o) {
+      return (!o.month || !month || o.month === month) && (!o.until || new Date(o.until + "T23:59:59") >= floor);
+    });
+    // Group offers by category.
+    cats = {};
+    offers.forEach(function (o) {
+      var c = cardsById[o.card];
+      if (!c) return;
+      var key = o.category.trim();
+      (cats[key] = cats[key] || { name: key, notes: [], items: [] }).items.push({ card: c, percent: o.percent, note: o.note });
+      if (o.note) cats[key].notes.push(o.note);
+    });
+    catList = Object.keys(cats).map(function (k) {
+      var x = cats[k];
+      x.items.sort(function (a, b) { return b.percent - a.percent || sortCards(a.card, b.card); });
+      return x;
+    }).sort(function (a, b) { return coll.compare(a.name, b.name); });
+  }
 
   // Best card for spending outside any category.
   var baseCards = D.cards.filter(function (c) { return c.base > 0; })
@@ -316,10 +337,10 @@
   function renderCards(q) {
     var html = [];
     D.cards.slice().sort(sortCards).forEach(function (c) {
-      var offers = D.offers.filter(function (o) { return o.card === c.id; })
+      var own = offers.filter(function (o) { return o.card === c.id; })
         .sort(function (a, b) { return coll.compare(a.category, b.category); });
       var hit = !q || matches(c.bank + " " + c.name, q);
-      var rows = offers.filter(function (o) { return hit || matches(o.category + " " + (o.note || ""), q); });
+      var rows = own.filter(function (o) { return hit || matches(o.category + " " + (o.note || ""), q); });
       if (!rows.length && !hit) return;
       var meta = [];
       if (c.limit) meta.push("лимит " + c.limit.toLocaleString("ru-RU") + " ₽/мес");
@@ -345,7 +366,12 @@
   function render() {
     var q = qEl.value.trim().toLowerCase();
     document.querySelectorAll(".tab").forEach(function (t) { t.setAttribute("aria-selected", String(t.dataset.view === view)); });
+    build();
+    monthsEl.querySelectorAll(".month").forEach(function (b) { b.setAttribute("aria-selected", String(b.dataset.month === month)); });
     if (view === "card") renderCards(q); else renderCats(q);
+    document.getElementById("foot").textContent = plural(D.cards.length, "карта", "карты", "карт") + " · " +
+      plural(catList.length, "категория", "категории", "категорий") +
+      (D.updated ? " · обновлено " + new Date(D.updated).toLocaleDateString("ru-RU") : "");
   }
 
   document.querySelectorAll(".tab").forEach(function (t) {
@@ -357,15 +383,20 @@
   });
   qEl.addEventListener("input", render);
 
-  document.getElementById("period").innerHTML = D.period ? "Период: <b>" + esc(D.period) + "</b>" : "";
+  var monthsEl = document.getElementById("months");
+  monthsEl.innerHTML = months.map(function (m) {
+    var label = monthName(m);
+    return '<button class="month" role="tab" data-month="' + m + '">' + label.charAt(0).toUpperCase() + label.slice(1) + "</button>";
+  }).join("");
+  monthsEl.addEventListener("click", function (e) {
+    var b = e.target.closest(".month");
+    if (b) { month = b.dataset.month; render(); }
+  });
   document.getElementById("demo").hidden = !D.demo;
   function plural(n, one, few, many) {
     var m10 = n % 10, m100 = n % 100;
     return n + " " + (m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many);
   }
-  document.getElementById("foot").textContent = plural(D.cards.length, "карта", "карты", "карт") + " · " +
-    plural(catList.length, "категория", "категории", "категорий") +
-    (D.updated ? " · обновлено " + new Date(D.updated).toLocaleDateString("ru-RU") : "");
   render();
 })();
 </script>
