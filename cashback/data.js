@@ -22,8 +22,6 @@ window.CASHBACK = {
     { card: "yandex-pay", month: "2026-09", category: "Спортивные товары", percent: 5 },
     { card: "yandex-pay", month: "2026-09", category: "Одежда и обувь", percent: 7, note: "не суммируется с категориями", until: "2026-09-30" },
     { card: "yandex-pay", month: "2026-09", category: "АЗС", percent: 3, note: "через Яндекс Заправки" },
-    { card: "yandex-pay", month: "2026-09", category: "Л'Этуаль", percent: 25, note: "не суммируется с категориями", until: "2026-09-30" },
-    { card: "yandex-pay", category: "Луми", percent: 100, note: "Свои Плюсы недели", until: "2026-10-03" },
 
     // Альфа-Банк — сентябрь
     { card: "alfa", month: "2026-09", category: "Кафе и рестораны", percent: 4 },
@@ -36,10 +34,6 @@ window.CASHBACK = {
     { card: "alfa", month: "2026-10", category: "Продукты", percent: 1 },
     { card: "alfa", month: "2026-10", category: "Животные", percent: 5, note: "зоомагазины и ветклиники" },
 
-    // Райффайзенбанк — партнёры с повышенным кэшбэком (процент «до»)
-    { card: "raif", category: "Докторслон", percent: 10, note: "кэшбэк до 10%, партнёр" },
-    { card: "raif", category: "Domino Pizza", percent: 3, note: "кэшбэк до 3%, партнёр" },
-    { card: "raif", category: "2 берега", percent: 4, note: "кэшбэк до 4%, партнёр" },
 
     // ОТП Банк — сентябрь
     { card: "otp", month: "2026-09", category: "АЗС", percent: 5 },
