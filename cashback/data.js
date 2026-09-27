@@ -12,7 +12,8 @@ window.CASHBACK = {
     { id: "yandex-pay", bank: "Яндекс Банк", name: "Карта Пэй", color: "#7B4DFF", base: 1, baseNote: "покупки на кассе", unit: "баллы Плюса" },
     { id: "alfa", bank: "Альфа-Банк", name: "Альфа-Карта", color: "#EF3124" },
     { id: "raif", bank: "Райффайзенбанк", name: "Карта с кэшбэком", color: "#FEE600", base: 1.5 },
-    { id: "otp", bank: "ОТП Банк", name: "Карта", color: "#AEEA00", base: 1 }
+    { id: "otp", bank: "ОТП Банк", name: "Карта", color: "#AEEA00", base: 1 },
+    { id: "ozon", bank: "Озон Банк", name: "Карта", color: "#005BFF", base: 1 }
   ],
   offers: [
     // Яндекс Банк — сентябрь
@@ -48,6 +49,11 @@ window.CASHBACK = {
     // ОТП Банк — октябрь
     { card: "otp", month: "2026-10", category: "Цифровые товары", percent: 5 },
     { card: "otp", month: "2026-10", category: "Фастфуд", percent: 5 },
-    { card: "otp", month: "2026-10", category: "Автозапчасти и аксессуары", percent: 5 }
+    { card: "otp", month: "2026-10", category: "Автозапчасти и аксессуары", percent: 5 },
+
+    // Озон Банк — сентябрь
+    { card: "ozon", month: "2026-09", category: "Медицина", percent: 5, note: "медицинские клиники" },
+    { card: "ozon", month: "2026-09", category: "Кафе и рестораны", percent: 5, note: "только рестораны" },
+    { card: "ozon", month: "2026-09", category: "Фитнес", percent: 5 }
   ]
 };

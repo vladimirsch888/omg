@@ -109,7 +109,9 @@
   .cat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .cat-name { font-weight: 600; font-size: 16px; }
   .cat-note { color: var(--muted); font-size: 13px; }
-  .best { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .cat-head > div:first-child { min-width: 0; }
+  .cat-head .pct { flex-shrink: 0; }
+  .best { display: flex; flex-wrap: wrap; gap: 6px 16px; }
   .pct { font: 700 22px/1 var(--display); color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .others { display: flex; flex-wrap: wrap; gap: 6px; }
   .other {
@@ -134,7 +136,7 @@
   }
   .other .swatch { width: 20px; height: 14px; border-radius: 999px; }
   .other .swatch::after { display: none; }
-  .best .chip { flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
+  .best .chip { flex-wrap: wrap; gap: 2px 8px; }
   .best .chip small { color: var(--muted); font-size: 12px; font-weight: 400; }
   .best-label { display: flex; align-items: center; gap: 6px; }
 
@@ -166,7 +168,6 @@
 
   @media (max-width: 420px) {
     .pct { font-size: 19px; }
-    .best .chip small:not(.keep) { display: none; }
   }
 </style>
 
@@ -222,8 +223,8 @@
     "продукты": ["супермаркет", "продукт"],
     "магазин": ["супермаркет", "продукт"],
     "лекарства": ["аптек", "медицин"], "аптека": ["аптек", "медицин"],
-    "врач": ["медицин"], "клиника": ["медицин"], "анализы": ["медицин"], "стоматолог": ["медицин"],
-    "спорт": ["спорт"], "фитнес": ["спорт"], "косметика": ["этуаль", "красот"], "духи": ["этуаль"],
+    "врач": ["медицин", "клиник"], "анализы": ["медицин"], "стоматолог": ["медицин"],
+    "спорт": ["спорт", "фитнес"], "фитнес": ["спорт", "фитнес"], "зал": ["фитнес"], "тренировка": ["фитнес"], "клиника": ["медицин", "клиник"], "косметика": ["этуаль", "красот"], "духи": ["этуаль"],
     "бар": ["кафе", "ресторан"],
     "бургер": ["фастфуд"], "шаурма": ["фастфуд"], "пицца": ["фастфуд", "pizza"],
     "игры": ["цифров"], "подписки": ["цифров"], "приложения": ["цифров"],
@@ -320,12 +321,14 @@
       var ties = c.items.filter(function (i) { return i.percent === top; });
       var rest = c.items.filter(function (i) { return i.percent !== top; });
       var bestChips = ties.map(function (i) {
-        return '<span class="chip"><span class="best-label">' + swatch(i.card) + esc(i.card.bank) + "</span><small' + (i.base ? ' class="keep"' : "") + ">" + esc(i.base ? "на все покупки" + (i.card.baseNote ? ", " + i.card.baseNote : "") : i.card.name) + "</small></span>";
+        return '<span class="chip"><span class="best-label">' + swatch(i.card) + esc(i.card.bank) + "</span><small>" + esc(i.base ? "на все покупки" + (i.card.baseNote ? ", " + i.card.baseNote : "") : i.card.name) + "</small></span>";
       }).join("");
       html.push(
         '<article class="cat"><div class="cat-head"><div><div class="cat-name">' + esc(c.name) + "</div>" +
-        (c.notes.length ? '<div class="cat-note">' + esc(c.notes.join("; ")) + "</div>" : "") +
-        '</div><div class="best">' + bestChips + '<span class="pct">' + fmt(top) + "</span></div></div>" +
+        (c.notes.length ? '<div class="cat-note">' + esc(c.items.filter(function (i) { return i.note; }).map(function (i) {
+          return (c.items.length > 1 ? i.card.bank + ": " : "") + i.note;
+        }).join("; ")) + "</div>" : "") +
+        '</div><span class="pct">' + fmt(top) + '</span></div><div class="best">' + bestChips + "</div>" +
         (rest.length ? '<div class="others">' + rest.map(function (i) {
           return '<span class="other">' + swatch(i.card) + esc(cardLabel(i.card)) + (i.base ? " · на всё" : "") + " <b>" + fmt(i.percent) + "</b></span>";
         }).join("") + "</div>" : "") +
@@ -337,7 +340,7 @@
       html.push(
         '<div class="letter">ВСЁ ОСТАЛЬНОЕ</div><article class="cat"><div class="cat-head"><div><div class="cat-name">Покупки вне категорий</div>' +
         '<div class="cat-note">' + (shown.length ? "Базовый кэшбэк на любые траты" : "Такой категории нет, платите картой с лучшим базовым кэшбэком") + "</div></div>" +
-        '<div class="best"><span class="chip"><span class="best-label">' + swatch(b.card) + esc(b.card.bank) + "</span><small>" + esc(b.card.name) + '</small></span><span class="pct">' + fmt(b.percent) + "</span></div></div>" +
+        '<span class="pct">' + fmt(b.percent) + '</span></div><div class="best"><span class="chip"><span class="best-label">' + swatch(b.card) + esc(b.card.bank) + "</span><small>" + esc(b.card.name + (b.card.baseNote ? ", " + b.card.baseNote : "")) + "</small></span></div>" +
         (baseCards.length > 1 ? '<div class="others">' + baseCards.slice(1).map(function (i) {
           return '<span class="other">' + swatch(i.card) + esc(cardLabel(i.card)) + " <b>" + fmt(i.percent) + "</b></span>";
         }).join("") + "</div>" : "") + "</article>"
