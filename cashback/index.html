@@ -194,12 +194,25 @@
   var cardsById = {};
   D.cards.forEach(function (c) { cardsById[c.id] = c; });
 
+  // Drop offers that have ended; show the end date of temporary ones next to the note.
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  D.offers = D.offers.filter(function (o) {
+    return !o.until || new Date(o.until + "T23:59:59") >= today;
+  }).map(function (o) {
+    if (!o.until) return o;
+    var d = new Date(o.until + "T00:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+    return Object.assign({}, o, { note: (o.note ? o.note + " · " : "") + "до " + d });
+  });
+
   // Everyday words mapped to the category names banks use.
   var SYN = {
     "еда": ["супермаркет", "продукт", "кафе", "ресторан", "фастфуд", "доставка"],
     "продукты": ["супермаркет", "продукт"],
     "магазин": ["супермаркет", "продукт"],
-    "лекарства": ["аптек"], "аптека": ["аптек"],
+    "лекарства": ["аптек", "медицин"], "аптека": ["аптек", "медицин"],
+    "врач": ["медицин"], "клиника": ["медицин"], "анализы": ["медицин"], "стоматолог": ["медицин"],
+    "спорт": ["спорт"], "фитнес": ["спорт"], "косметика": ["этуаль", "красот"], "духи": ["этуаль"],
+    "бар": ["кафе", "ресторан"],
     "бензин": ["азс", "топливо"], "заправка": ["азс", "топливо"],
     "метро": ["транспорт"], "автобус": ["транспорт"], "электричка": ["транспорт"],
     "обед": ["кафе", "ресторан", "фастфуд"], "кофе": ["кафе", "ресторан"],
@@ -321,7 +334,7 @@
             (o.note ? '<br><span class="cat-note">' + esc(o.note) + "</span>" : "") +
             '</span><span class="v">' + fmt(o.percent) + "</span></li>";
         }).join("") +
-        (c.base && hit ? '<li class="base"><span>На всё остальное</span><span class="v">' + fmt(c.base) + "</span></li>" : "") +
+        (c.base && hit ? '<li class="base"><span>На всё остальное' + (c.baseNote ? " (" + esc(c.baseNote) + ")" : "") + '</span><span class="v">' + fmt(c.base) + "</span></li>" : "") +
         "</ul></section>"
       );
     });
