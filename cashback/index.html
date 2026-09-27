@@ -1,0 +1,358 @@
+<title>Кэшбэк-кошелёк</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600&family=Unbounded:wght@500;700&display=swap">
+<style>
+  :root {
+    --bg: #eef2f0;
+    --surface: #ffffff;
+    --surface-2: #f6f8f7;
+    --ink: #15201b;
+    --muted: #5d6b65;
+    --line: #dbe3df;
+    --accent: #0d7a5c;
+    --accent-soft: #d9efe6;
+    --warn-bg: #fff4d6;
+    --warn-ink: #6b4d00;
+    --shadow: 0 1px 2px rgba(21, 32, 27, .06), 0 6px 18px rgba(21, 32, 27, .05);
+    --font: "Onest", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --display: "Unbounded", "Onest", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0e1412;
+      --surface: #161f1b;
+      --surface-2: #1b2521;
+      --ink: #e5eee9;
+      --muted: #93a39c;
+      --line: #28342f;
+      --accent: #45c79f;
+      --accent-soft: #173a2e;
+      --warn-bg: #3a3014;
+      --warn-ink: #f1d58a;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0e1412;
+    --surface: #161f1b;
+    --surface-2: #1b2521;
+    --ink: #e5eee9;
+    --muted: #93a39c;
+    --line: #28342f;
+    --accent: #45c79f;
+    --accent-soft: #173a2e;
+    --warn-bg: #3a3014;
+    --warn-ink: #f1d58a;
+    --shadow: none;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.45 var(--font);
+    padding-inline: 16px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding-block: 20px 48px; display: grid; gap: 16px; }
+
+  header { display: grid; gap: 12px; }
+  .title-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
+  h1 { font: 700 22px/1.2 var(--display); margin: 0; letter-spacing: -.01em; text-wrap: balance; }
+  .period { color: var(--muted); font-size: 13px; }
+  .period b { color: var(--ink); font-weight: 600; }
+
+  .demo {
+    background: var(--warn-bg); color: var(--warn-ink);
+    border-radius: 10px; padding: 10px 12px; font-size: 13px;
+  }
+
+  .controls {
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+    background: var(--bg);
+    display: grid; gap: 10px; padding-block: 8px;
+  }
+  .search {
+    width: 100%; box-sizing: border-box;
+    font: inherit; font-size: 16px; color: var(--ink);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 11px 14px;
+  }
+  .search::placeholder { color: var(--muted); }
+  .search:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .tabs { display: flex; gap: 4px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 3px; }
+  .tab {
+    flex: 1; font: inherit; font-weight: 500; font-size: 14px; color: var(--muted);
+    background: transparent; border: 0; border-radius: 9px; padding: 8px 10px; cursor: pointer;
+  }
+  .tab[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .list { display: grid; gap: 8px; }
+  .letter {
+    font: 700 12px/1 var(--display); color: var(--muted); letter-spacing: .08em;
+    padding: 10px 4px 2px;
+  }
+
+  /* Category rows */
+  .cat {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    padding: 12px 14px; display: grid; gap: 8px;
+  }
+  .cat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .cat-name { font-weight: 600; font-size: 16px; }
+  .cat-note { color: var(--muted); font-size: 13px; }
+  .best { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .pct { font: 700 22px/1 var(--display); color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .others { display: flex; flex-wrap: wrap; gap: 6px; }
+  .other {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px;
+    padding: 3px 10px 3px 4px; font-size: 13px; color: var(--muted);
+  }
+  .other b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* Card chip: a tiny card face in the card's own colour */
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500;
+  }
+  .swatch {
+    width: 26px; height: 17px; border-radius: 4px; flex-shrink: 0;
+    background: var(--c); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12);
+    position: relative; overflow: hidden;
+  }
+  .swatch::after {
+    content: ""; position: absolute; left: 4px; top: 5px; width: 6px; height: 5px; border-radius: 1px;
+    background: rgba(255, 255, 255, .55);
+  }
+  .other .swatch { width: 20px; height: 14px; border-radius: 999px; }
+  .other .swatch::after { display: none; }
+  .best .chip { flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
+  .best .chip small { color: var(--muted); font-size: 12px; font-weight: 400; }
+  .best-label { display: flex; align-items: center; gap: 6px; }
+
+  /* Card view */
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .card-face {
+    background: var(--c); color: var(--on);
+    padding: 14px 16px; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap;
+  }
+  .card-bank { font: 700 17px/1.2 var(--display); }
+  .card-name { font-size: 13px; opacity: .85; }
+  .card-meta { font-size: 12px; opacity: .85; text-align: right; }
+  .rows { list-style: none; margin: 0; padding: 4px 0; }
+  .rows li {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+    padding: 9px 16px; border-top: 1px solid var(--line);
+  }
+  .rows li:first-child { border-top: 0; }
+  .rows .v { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rows .top .v { color: var(--accent); }
+  .tag {
+    display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 600; letter-spacing: .04em;
+    color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 1px 6px; vertical-align: 1px;
+  }
+  .rows .base { color: var(--muted); }
+
+  .empty { text-align: center; color: var(--muted); padding: 32px 8px; }
+  footer { color: var(--muted); font-size: 12px; text-align: center; }
+
+  @media (max-width: 420px) {
+    .pct { font-size: 19px; }
+    .best .chip small { display: none; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="title-row">
+      <h1>Кэшбэк-кошелёк</h1>
+      <div class="period" id="period"></div>
+    </div>
+    <div class="demo" id="demo" hidden>Это пример. Пришлите скриншоты категорий кэшбэка из банков, и здесь появятся ваши карты.</div>
+  </header>
+
+  <div class="controls">
+    <input class="search" id="q" type="search" placeholder="Что покупаете? Аптека, такси…" autocomplete="off">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" id="tab-cat" data-view="cat" aria-selected="true">По категориям</button>
+      <button class="tab" role="tab" id="tab-card" data-view="card" aria-selected="false">По картам</button>
+    </div>
+  </div>
+
+  <main class="list" id="list"></main>
+  <footer id="foot"></footer>
+</div>
+
+<script src="data.js"></script>
+<script>
+(function () {
+  var D = window.CASHBACK || { cards: [], offers: [] };
+  var coll = new Intl.Collator("ru", { sensitivity: "base", numeric: true });
+  var cardsById = {};
+  D.cards.forEach(function (c) { cardsById[c.id] = c; });
+
+  // Everyday words mapped to the category names banks use.
+  var SYN = {
+    "еда": ["супермаркет", "продукт", "кафе", "ресторан", "фастфуд", "доставка"],
+    "продукты": ["супермаркет", "продукт"],
+    "магазин": ["супермаркет", "продукт"],
+    "лекарства": ["аптек"], "аптека": ["аптек"],
+    "бензин": ["азс", "топливо"], "заправка": ["азс", "топливо"],
+    "метро": ["транспорт"], "автобус": ["транспорт"], "электричка": ["транспорт"],
+    "обед": ["кафе", "ресторан", "фастфуд"], "кофе": ["кафе", "ресторан"],
+    "одежда": ["одежд", "обувь"], "обувь": ["одежд", "обувь"],
+    "кино": ["кино"], "театр": ["театр"], "парикмахер": ["красот"], "маникюр": ["красот"],
+    "озон": ["ozon", "озон", "маркетплейс"], "wildberries": ["wildberries", "маркетплейс"], "вб": ["wildberries"]
+  };
+
+  function fmt(n) { return String(n).replace(".", ",") + "%"; }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (m) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]; }); }
+  function onColor(hex) {
+    var h = hex.replace("#", "");
+    var r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? "#15201b" : "#ffffff";
+  }
+  function cardLabel(c) { return c.bank + " · " + c.name; }
+  function swatch(c) { return '<span class="swatch" style="--c:' + esc(c.color) + '"></span>'; }
+  function sortCards(a, b) { return coll.compare(a.bank, b.bank) || coll.compare(a.name, b.name); }
+
+  // Group offers by category.
+  var cats = {};
+  D.offers.forEach(function (o) {
+    var c = cardsById[o.card];
+    if (!c) return;
+    var key = o.category.trim();
+    (cats[key] = cats[key] || { name: key, notes: [], items: [] }).items.push({ card: c, percent: o.percent, note: o.note });
+    if (o.note) cats[key].notes.push(o.note);
+  });
+  var catList = Object.keys(cats).map(function (k) {
+    var x = cats[k];
+    x.items.sort(function (a, b) { return b.percent - a.percent || sortCards(a.card, b.card); });
+    return x;
+  }).sort(function (a, b) { return coll.compare(a.name, b.name); });
+
+  // Best card for spending outside any category.
+  var baseCards = D.cards.filter(function (c) { return c.base > 0; })
+    .map(function (c) { return { card: c, percent: c.base }; })
+    .sort(function (a, b) { return b.percent - a.percent || sortCards(a.card, b.card); });
+
+  // For each card: the categories where it is the best choice.
+  function isTop(catName, cardId) {
+    var items = cats[catName].items, top = items[0].percent;
+    return items.some(function (i) { return i.card.id === cardId && i.percent === top; });
+  }
+
+  function matches(text, q) {
+    if (!q) return true;
+    text = text.toLowerCase();
+    if (text.indexOf(q) !== -1) return true;
+    var keys = Object.keys(SYN);
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].indexOf(q) === 0 || q.indexOf(keys[i]) === 0) {
+        if (SYN[keys[i]].some(function (s) { return text.indexOf(s) !== -1; })) return true;
+      }
+    }
+    return false;
+  }
+
+  var list = document.getElementById("list");
+  var qEl = document.getElementById("q");
+  var view = "cat";
+  try { view = localStorage.getItem("cb-view") || "cat"; } catch (e) {}
+
+  function renderCats(q) {
+    var html = [], letter = "";
+    var shown = catList.filter(function (c) { return matches(c.name + " " + c.notes.join(" "), q); });
+    shown.forEach(function (c) {
+      var L = c.name.charAt(0).toUpperCase();
+      if (!q && L !== letter) { letter = L; html.push('<div class="letter">' + esc(L) + "</div>"); }
+      var best = c.items[0], top = best.percent;
+      var ties = c.items.filter(function (i) { return i.percent === top; });
+      var rest = c.items.filter(function (i) { return i.percent !== top; });
+      var bestChips = ties.map(function (i) {
+        return '<span class="chip"><span class="best-label">' + swatch(i.card) + esc(i.card.bank) + "</span><small>" + esc(i.card.name) + "</small></span>";
+      }).join("");
+      html.push(
+        '<article class="cat"><div class="cat-head"><div><div class="cat-name">' + esc(c.name) + "</div>" +
+        (c.notes.length ? '<div class="cat-note">' + esc(c.notes.join("; ")) + "</div>" : "") +
+        '</div><div class="best">' + bestChips + '<span class="pct">' + fmt(top) + "</span></div></div>" +
+        (rest.length ? '<div class="others">' + rest.map(function (i) {
+          return '<span class="other">' + swatch(i.card) + esc(cardLabel(i.card)) + " <b>" + fmt(i.percent) + "</b></span>";
+        }).join("") + "</div>" : "") +
+        "</article>"
+      );
+    });
+    if (baseCards.length && (!q || matches("всё остальное прочее любые покупки", q) || !shown.length)) {
+      var b = baseCards[0];
+      html.push(
+        '<div class="letter">ВСЁ ОСТАЛЬНОЕ</div><article class="cat"><div class="cat-head"><div><div class="cat-name">Покупки вне категорий</div>' +
+        '<div class="cat-note">' + (shown.length ? "Базовый кэшбэк на любые траты" : "Такой категории нет, платите картой с лучшим базовым кэшбэком") + "</div></div>" +
+        '<div class="best"><span class="chip"><span class="best-label">' + swatch(b.card) + esc(b.card.bank) + "</span><small>" + esc(b.card.name) + '</small></span><span class="pct">' + fmt(b.percent) + "</span></div></div>" +
+        (baseCards.length > 1 ? '<div class="others">' + baseCards.slice(1).map(function (i) {
+          return '<span class="other">' + swatch(i.card) + esc(cardLabel(i.card)) + " <b>" + fmt(i.percent) + "</b></span>";
+        }).join("") + "</div>" : "") + "</article>"
+      );
+    }
+    if (!html.length) html.push('<div class="empty">Ничего не нашлось</div>');
+    list.innerHTML = html.join("");
+  }
+
+  function renderCards(q) {
+    var html = [];
+    D.cards.slice().sort(sortCards).forEach(function (c) {
+      var offers = D.offers.filter(function (o) { return o.card === c.id; })
+        .sort(function (a, b) { return coll.compare(a.category, b.category); });
+      var hit = !q || matches(c.bank + " " + c.name, q);
+      var rows = offers.filter(function (o) { return hit || matches(o.category + " " + (o.note || ""), q); });
+      if (!rows.length && !hit) return;
+      var meta = [];
+      if (c.limit) meta.push("лимит " + c.limit.toLocaleString("ru-RU") + " ₽/мес");
+      if (c.unit) meta.push(c.unit);
+      html.push(
+        '<section class="card"><div class="card-face" style="--c:' + esc(c.color) + ";--on:" + onColor(c.color) + '">' +
+        '<div><div class="card-bank">' + esc(c.bank) + '</div><div class="card-name">' + esc(c.name) + "</div></div>" +
+        '<div class="card-meta">' + esc(meta.join(" · ")) + "</div></div><ul class=\"rows\">" +
+        rows.map(function (o) {
+          var top = isTop(o.category.trim(), c.id);
+          return '<li class="' + (top ? "top" : "") + '"><span>' + esc(o.category) + (top ? '<span class="tag">ЛУЧШАЯ</span>' : "") +
+            (o.note ? '<br><span class="cat-note">' + esc(o.note) + "</span>" : "") +
+            '</span><span class="v">' + fmt(o.percent) + "</span></li>";
+        }).join("") +
+        (c.base && hit ? '<li class="base"><span>На всё остальное</span><span class="v">' + fmt(c.base) + "</span></li>" : "") +
+        "</ul></section>"
+      );
+    });
+    if (!html.length) html.push('<div class="empty">Ничего не нашлось</div>');
+    list.innerHTML = html.join("");
+  }
+
+  function render() {
+    var q = qEl.value.trim().toLowerCase();
+    document.querySelectorAll(".tab").forEach(function (t) { t.setAttribute("aria-selected", String(t.dataset.view === view)); });
+    if (view === "card") renderCards(q); else renderCats(q);
+  }
+
+  document.querySelectorAll(".tab").forEach(function (t) {
+    t.addEventListener("click", function () {
+      view = t.dataset.view;
+      try { localStorage.setItem("cb-view", view); } catch (e) {}
+      render();
+    });
+  });
+  qEl.addEventListener("input", render);
+
+  document.getElementById("period").innerHTML = D.period ? "Период: <b>" + esc(D.period) + "</b>" : "";
+  document.getElementById("demo").hidden = !D.demo;
+  function plural(n, one, few, many) {
+    var m10 = n % 10, m100 = n % 100;
+    return n + " " + (m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many);
+  }
+  document.getElementById("foot").textContent = plural(D.cards.length, "карта", "карты", "карт") + " · " +
+    plural(catList.length, "категория", "категории", "категорий") +
+    (D.updated ? " · обновлено " + new Date(D.updated).toLocaleDateString("ru-RU") : "");
+  render();
+})();
+</script>
