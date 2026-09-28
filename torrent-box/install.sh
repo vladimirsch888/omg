@@ -21,6 +21,9 @@
 #   TG_BOT_TOKEN, TG_CHAT_ID — если заданы, по завершении скачивания
 #                  ссылка придёт в Telegram.
 #   WEBUI          vuetorrent (по умолчанию, удобно с телефона) или classic
+#   SFTP           yes (по умолчанию) — доступ к готовым файлам по SFTP только
+#                  на чтение (для VLC на iPhone); no — не настраивать
+#   SFTP_USER      логин для SFTP (по умолчанию media), пароль тот же
 #
 # Скрипт можно перезапускать: он обновит логин/пароль, домен и настройки,
 # не трогая уже скачанное и список торрентов.
@@ -53,14 +56,19 @@ if [ -f "$ENV_FILE" ]; then
   PREV_TG_BOT_TOKEN=$(. "$ENV_FILE"; echo "${TG_BOT_TOKEN:-}")
   PREV_TG_CHAT_ID=$(. "$ENV_FILE"; echo "${TG_CHAT_ID:-}")
   PREV_TORRENT_USER=$(. "$ENV_FILE"; echo "${TORRENT_USER:-}")
+  PREV_SFTP_USER=$(. "$ENV_FILE"; echo "${SFTP_USER:-}")
 fi
 
-echo "== [1/8] Пакеты =="
+echo "== [1/9] Пакеты =="
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y || echo "!! apt-get update завершился с ошибкой — продолжаю с текущими списками пакетов"
 apt-get install -y qbittorrent-nox nginx certbot python3-certbot-nginx python3 openssl curl unzip
+SFTP="${SFTP:-yes}"
+if [ "$SFTP" = "yes" ]; then
+  apt-get install -y openssh-server fail2ban
+fi
 
-echo "== [2/8] Домен, логин, пароль =="
+echo "== [2/9] Домен, логин, пароль =="
 if [ -z "${DOMAIN:-}" ]; then
   DOMAIN="${PREV_DOMAIN:-}"
 fi
@@ -99,12 +107,15 @@ fi
 TG_BOT_TOKEN="${TG_BOT_TOKEN:-${PREV_TG_BOT_TOKEN:-}}"
 TG_CHAT_ID="${TG_CHAT_ID:-${PREV_TG_CHAT_ID:-}}"
 WEBUI="${WEBUI:-vuetorrent}"
+SFTP_USER="${SFTP_USER:-${PREV_SFTP_USER:-media}}"
 echo "Домен: $DOMAIN, логин: $TORRENT_USER"
 
-echo "== [3/8] Пользователь и каталоги =="
+echo "== [3/9] Пользователь и каталоги =="
 id -u "$QBT_USER" &>/dev/null || useradd --system --home-dir "$QBT_HOME" --create-home --shell /usr/sbin/nologin "$QBT_USER"
 mkdir -p "$DOWNLOADS" "$INCOMPLETE" "$WWW" "$(dirname "$QBT_CONF")"
-chown -R "$QBT_USER:$QBT_USER" "$QBT_HOME" "$DATA"
+chown -R "$QBT_USER:$QBT_USER" "$QBT_HOME" "$DOWNLOADS" "$INCOMPLETE" "$WWW"
+# Корень $DATA принадлежит root: этого требует chroot SFTP в sshd.
+chown root:root "$DATA"
 chmod 755 "$DATA" "$DOWNLOADS" "$WWW"
 chmod 750 "$INCOMPLETE"
 
@@ -115,11 +126,12 @@ WWW='$WWW'
 TG_BOT_TOKEN='$TG_BOT_TOKEN'
 TG_CHAT_ID='$TG_CHAT_ID'
 TORRENT_USER='$TORRENT_USER'
+SFTP_USER='$SFTP_USER'
 EOF
 chown "root:$QBT_USER" "$ENV_FILE"
 chmod 640 "$ENV_FILE"
 
-echo "== [4/8] Веб-интерфейс =="
+echo "== [4/9] Веб-интерфейс =="
 ALT_UI=false
 if [ "$WEBUI" = "vuetorrent" ]; then
   TMP_ZIP=$(mktemp --suffix=.zip)
@@ -135,7 +147,7 @@ if [ "$WEBUI" = "vuetorrent" ]; then
   rm -f "$TMP_ZIP"
 fi
 
-echo "== [5/8] Хук «скачивание завершено» =="
+echo "== [5/9] Хук «скачивание завершено» =="
 cat > "$HOOK" <<'PY'
 #!/usr/bin/env python3
 """Вызывается qBittorrent по завершении торрента: torrent-box-finished NAME CONTENT_PATH.
@@ -256,7 +268,7 @@ PY
 chmod 755 "$HOOK"
 runuser -u "$QBT_USER" -- "$HOOK"   # создать пустую страницу /links
 
-echo "== [6/8] Настройки qBittorrent =="
+echo "== [6/9] Настройки qBittorrent =="
 systemctl stop qbittorrent-nox 2>/dev/null || true
 QBT_CONF="$QBT_CONF" TORRENT_USER="$TORRENT_USER" TORRENT_PASS="${TORRENT_PASS:-}" \
 QBT_PORT="$QBT_PORT" PEER_PORT="$PEER_PORT" DOWNLOADS="$DOWNLOADS" INCOMPLETE="$INCOMPLETE" \
@@ -340,7 +352,7 @@ systemctl daemon-reload
 systemctl enable --now qbittorrent-nox
 systemctl restart qbittorrent-nox
 
-echo "== [7/8] Nginx + HTTPS =="
+echo "== [7/9] Nginx + HTTPS =="
 # Пароль для /files и /links — тот же, что и для веб-морды.
 if [ -z "$KEEP_PASS" ]; then
   printf '%s:%s\n' "$TORRENT_USER" "$(openssl passwd -apr1 -stdin <<<"$TORRENT_PASS")" > "$HTPASSWD"
@@ -442,7 +454,72 @@ else
   fi
 fi
 
-echo "== [8/8] Проверка =="
+echo "== [8/9] SFTP для VLC =="
+SSHD_DROPIN="/etc/ssh/sshd_config.d/torrent-box.conf"
+SFTP_STATUS=""
+if [ "$SFTP" = "yes" ]; then
+  getent group torrent-sftp >/dev/null || groupadd --system torrent-sftp
+  SFTP_NEW=""
+  if ! id -u "$SFTP_USER" &>/dev/null; then
+    useradd --no-create-home --home-dir "/$(basename "$DOWNLOADS")" --shell /usr/sbin/nologin \
+      --gid torrent-sftp "$SFTP_USER"
+    SFTP_NEW=1
+  fi
+  if [ "$(id -gn "$SFTP_USER")" != "torrent-sftp" ]; then
+    echo "!! Пользователь $SFTP_USER уже существует и это не SFTP-пользователь качалки."
+    echo "!! Задайте другой логин: SFTP_USER=... bash install.sh. SFTP пропущен."
+  else
+    # Пароль тот же, что и для веб-морды. Если веб-пароль оставлен прежним,
+    # а SFTP-пользователь новый, прежнего пароля мы не знаем — генерируем.
+    if [ -n "${TORRENT_PASS:-}" ]; then
+      SFTP_PASS="$TORRENT_PASS"
+    elif [ -n "$SFTP_NEW" ]; then
+      SFTP_PASS=$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-16)
+      SFTP_PASS_GENERATED=1
+    fi
+    if [ -n "${SFTP_PASS:-}" ]; then
+      printf '%s:%s\n' "$SFTP_USER" "$SFTP_PASS" | chpasswd
+    fi
+    usermod -U "$SFTP_USER" 2>/dev/null || true   # мог быть заблокирован при SFTP=no
+
+    # Только SFTP, только чтение, видна только папка с загрузками.
+    mkdir -p /run/sshd
+    cat > "$SSHD_DROPIN" <<EOF
+# torrent-box: доступ к готовым файлам по SFTP (только чтение)
+Match Group torrent-sftp
+    ChrootDirectory $DATA
+    ForceCommand internal-sftp -R -d /$(basename "$DOWNLOADS")
+    PasswordAuthentication yes
+    AllowTcpForwarding no
+    AllowAgentForwarding no
+    X11Forwarding no
+    PermitTTY no
+EOF
+    if sshd -t; then
+      systemctl reload ssh 2>/dev/null || systemctl restart ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+      # Защита от подбора пароля: бан IP после нескольких неудачных попыток входа.
+      systemctl enable --now fail2ban >/dev/null 2>&1 || true
+      SSH_PORT=$(sshd -T 2>/dev/null | awk '$1=="port"{print $2; exit}')
+      SSH_PORT="${SSH_PORT:-22}"
+      if command -v ufw >/dev/null; then ufw allow "$SSH_PORT/tcp" >/dev/null || true; fi
+      SFTP_STATUS=ok
+    else
+      rm -f "$SSHD_DROPIN"
+      echo "!! Конфиг sshd не прошёл проверку, SFTP не включён (SSH не тронут)."
+    fi
+  fi
+else
+  if [ -f "$SSHD_DROPIN" ]; then
+    rm -f "$SSHD_DROPIN"
+    systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+    echo "SFTP выключен"
+  fi
+  if id -u "$SFTP_USER" &>/dev/null && [ "$(id -gn "$SFTP_USER")" = "torrent-sftp" ]; then
+    usermod -L "$SFTP_USER"
+  fi
+fi
+
+echo "== [9/9] Проверка =="
 sleep 2
 if curl -fsS -o /dev/null "http://127.0.0.1:$QBT_PORT/"; then
   echo "qBittorrent запущен"
@@ -471,6 +548,19 @@ fi
 if [ -n "$TG_BOT_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; then
   echo
   echo " Уведомления в Telegram включены."
+fi
+if [ "$SFTP_STATUS" = ok ]; then
+  echo
+  echo " SFTP для VLC (Сеть → Подключиться к серверу → SFTP):"
+  echo "   Сервер: $DOMAIN   Порт: $SSH_PORT"
+  echo "   Логин:  $SFTP_USER"
+  if [ -n "${SFTP_PASS_GENERATED:-}" ]; then
+    echo "   Пароль: $SFTP_PASS   (сгенерирован — сохраните его!)"
+  elif [ -n "${SFTP_PASS:-}" ]; then
+    echo "   Пароль: тот же, что для веб-морды"
+  else
+    echo "   Пароль: прежний (не менялся)"
+  fi
 fi
 cat <<EOF
 
