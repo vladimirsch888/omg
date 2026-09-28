@@ -197,8 +197,7 @@
 (function () {
   var D = window.CASHBACK || { cards: [], offers: [] };
   var coll = new Intl.Collator("ru", { sensitivity: "base", numeric: true });
-  var cardsById = {};
-  D.cards.forEach(function (c) { cardsById[c.id] = c; });
+  var cards, cardsById, baseCards;
 
   // Show the end date of temporary offers next to the note.
   var ALL = D.offers.map(function (o) {
@@ -228,7 +227,7 @@
     "бар": ["кафе", "ресторан"],
     "бургер": ["фастфуд"], "шаурма": ["фастфуд"], "пицца": ["фастфуд", "pizza"],
     "игры": ["цифров"], "подписки": ["цифров"], "приложения": ["цифров"],
-    "шины": ["запчаст"], "автосервис": ["запчаст"], "запчасти": ["запчаст"], "машина": ["азс", "запчаст"],
+    "телефон": ["электрон"], "ноутбук": ["электрон"], "техника": ["электрон"], "шины": ["запчаст"], "автосервис": ["запчаст"], "запчасти": ["запчаст"], "машина": ["азс", "запчаст"],
     "бензин": ["азс", "топливо"], "заправка": ["азс", "топливо"],
     "метро": ["транспорт"], "автобус": ["транспорт"], "электричка": ["транспорт"],
     "обед": ["кафе", "ресторан", "фастфуд"], "кофе": ["кафе", "ресторан"],
@@ -250,6 +249,18 @@
 
   var offers, cats, catList;
   function build() {
+    // Cards with this month's overrides (e.g. a different rate on any purchase).
+    cardsById = {};
+    cards = D.cards.map(function (c) {
+      var x = Object.assign({}, c, (c.months && c.months[month]) || {});
+      cardsById[x.id] = x;
+      return x;
+    });
+    // Best card for spending outside any category.
+    baseCards = cards.filter(function (c) { return c.base > 0; })
+      .map(function (c) { return { card: c, percent: c.base }; })
+      .sort(function (a, b) { return b.percent - a.percent || sortCards(a.card, b.card); });
+
     var mStart = month ? new Date(month + "-01T00:00:00") : today;
     var floor = mStart > today ? mStart : today;
     // Offers for the chosen month that have not ended yet.
@@ -281,11 +292,6 @@
       x.items.sort(function (a, b) { return b.percent - a.percent || sortCards(a.card, b.card); });
     });
   }
-
-  // Best card for spending outside any category.
-  var baseCards = D.cards.filter(function (c) { return c.base > 0; })
-    .map(function (c) { return { card: c, percent: c.base }; })
-    .sort(function (a, b) { return b.percent - a.percent || sortCards(a.card, b.card); });
 
   // For each card: the categories where it is the best choice.
   function isTop(catName, cardId) {
@@ -352,7 +358,7 @@
 
   function renderCards(q) {
     var html = [];
-    D.cards.slice().sort(sortCards).forEach(function (c) {
+    cards.slice().sort(sortCards).forEach(function (c) {
       var own = offers.filter(function (o) { return o.card === c.id; })
         .sort(function (a, b) { return coll.compare(a.category, b.category); });
       var hit = !q || matches(c.bank + " " + c.name, q);

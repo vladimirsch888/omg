@@ -1,15 +1,17 @@
 // Данные кэшбэков. Обновляются по скриншотам из банковских приложений.
 // cards  — карты: id, bank, name, color (цвет карты), base (% на всё остальное),
 //          baseNote (уточнение к базовому %), limit (лимит кэшбэка в месяц, ₽),
-//          unit ("₽" по умолчанию или "баллы"/"мили").
+//          unit ("₽" по умолчанию или "баллы"/"мили"),
+//          months ({ "ГГГГ-ММ": { base, baseNote } } — если базовый % меняется по месяцам).
 // offers — категории: card (id карты), category, percent, note (необязательно),
 //          month ("ГГГГ-ММ" — категория этого месяца; без него действует всегда),
 //          until (последний день акции, ГГГГ-ММ-ДД; после него скрывается).
 window.CASHBACK = {
   demo: false,
-  updated: "2026-09-27",
+  updated: "2026-09-28",
   cards: [
-    { id: "yandex-pay", bank: "Яндекс Банк", name: "Карта Пэй", color: "#7B4DFF", base: 1, baseNote: "покупки на кассе", unit: "баллы Плюса" },
+    { id: "yandex-pay", bank: "Яндекс Банк", name: "Карта Пэй", color: "#7B4DFF", base: 1, baseNote: "покупки на кассе", unit: "баллы Плюса",
+      months: { "2026-10": { base: 2, baseNote: "онлайн и на кассе" } } },
     { id: "alfa", bank: "Альфа-Банк", name: "Альфа-Карта", color: "#EF3124" },
     { id: "raif", bank: "Райффайзенбанк", name: "Карта с кэшбэком", color: "#FEE600", base: 1.5 },
     { id: "otp", bank: "ОТП Банк", name: "Карта", color: "#AEEA00", base: 1 },
@@ -22,6 +24,11 @@ window.CASHBACK = {
     { card: "yandex-pay", month: "2026-09", category: "Спортивные товары", percent: 5 },
     { card: "yandex-pay", month: "2026-09", category: "Одежда и обувь", percent: 7, note: "не суммируется с категориями", until: "2026-09-30" },
     { card: "yandex-pay", month: "2026-09", category: "АЗС", percent: 3, note: "через Яндекс Заправки" },
+
+    // Яндекс Банк — октябрь
+    { card: "yandex-pay", month: "2026-10", category: "Одежда и обувь", percent: 5 },
+    { card: "yandex-pay", month: "2026-10", category: "Электроника", percent: 5 },
+    { card: "yandex-pay", month: "2026-10", category: "АЗС", percent: 3, note: "через Яндекс Заправки" },
 
     // Альфа-Банк — сентябрь
     { card: "alfa", month: "2026-09", category: "Кафе и рестораны", percent: 4 },
