@@ -484,8 +484,15 @@ if [ "$SFTP" = "yes" ]; then
 
     # Только SFTP, только чтение, видна только папка с загрузками.
     mkdir -p /run/sshd
+    [ -f /etc/ssh/ssh_host_rsa_key ] || ssh-keygen -A
     cat > "$SSHD_DROPIN" <<EOF
 # torrent-box: доступ к готовым файлам по SFTP (только чтение)
+
+# VLC для iOS (его libssh2) умеет проверять ключ сервера только как ssh-rsa,
+# а OpenSSH 8.8+ по умолчанию его не предлагает — без этого VLC не подключится.
+# Современные клиенты по-прежнему выбирают ed25519.
+HostKeyAlgorithms +ssh-rsa
+
 Match Group torrent-sftp
     ChrootDirectory $DATA
     ForceCommand internal-sftp -R -d /$(basename "$DOWNLOADS")
