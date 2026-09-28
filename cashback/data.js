@@ -8,7 +8,7 @@
 //          until (последний день акции, ГГГГ-ММ-ДД; после него скрывается).
 window.CASHBACK = {
   demo: false,
-  updated: "2026-09-28",
+  updated: "2026-09-29",
   cards: [
     { id: "yandex-pay", bank: "Яндекс Банк", name: "Карта Пэй", color: "#7B4DFF", base: 1, baseNote: "покупки на кассе", unit: "баллы Плюса",
       months: { "2026-10": { base: 2, baseNote: "онлайн и на кассе" } } },
@@ -55,6 +55,12 @@ window.CASHBACK = {
     // Озон Банк — сентябрь
     { card: "ozon", month: "2026-09", category: "Медицина", percent: 5, note: "медицинские клиники" },
     { card: "ozon", month: "2026-09", category: "Кафе и рестораны", percent: 5, note: "только рестораны" },
-    { card: "ozon", month: "2026-09", category: "Фитнес", percent: 5 }
+    { card: "ozon", month: "2026-09", category: "Фитнес", percent: 5 },
+
+    // Озон Банк — октябрь
+    { card: "ozon", month: "2026-10", category: "Аптеки", percent: 5 },
+    { card: "ozon", month: "2026-10", category: "Кафе и рестораны", percent: 5, note: "только рестораны" },
+    { card: "ozon", month: "2026-10", category: "Спортивные товары", percent: 5 },
+    { card: "ozon", month: "2026-10", category: "Электроника", percent: 5, note: "электроника и бытовая техника" }
   ]
 };
