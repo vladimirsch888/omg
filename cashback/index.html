@@ -142,6 +142,11 @@
 
   /* Card view */
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .card.off { opacity: .55; }
+  .card.off .card-face { filter: grayscale(1); }
+  .card.off .card-meta { font-weight: 600; opacity: 1; }
+  .other.off { opacity: .6; text-decoration: none; }
+  .other.off b { text-decoration: line-through; color: var(--muted); }
   .card-face {
     background: var(--c); color: var(--on);
     padding: 14px 16px; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap;
@@ -257,7 +262,7 @@
       return x;
     });
     // Best card for spending outside any category.
-    baseCards = cards.filter(function (c) { return c.base > 0; })
+    baseCards = cards.filter(function (c) { return c.base > 0 && !c.off; })
       .map(function (c) { return { card: c, percent: c.base }; })
       .sort(function (a, b) { return b.percent - a.percent || sortCards(a.card, b.card); });
 
@@ -273,8 +278,10 @@
       var c = cardsById[o.card];
       if (!c) return;
       var key = o.category.trim();
-      (cats[key] = cats[key] || { name: key, notes: [], items: [] }).items.push({ card: c, percent: o.percent, note: o.note });
-      if (o.note) cats[key].notes.push(o.note);
+      var x = cats[key] = cats[key] || { name: key, notes: [], items: [], off: [] };
+      // Cards switched off for the month (limit used up) are listed but never ranked.
+      (c.off ? x.off : x.items).push({ card: c, percent: o.percent, note: o.note });
+      if (o.note) x.notes.push(o.note);
     });
     catList = Object.keys(cats).map(function (k) {
       var x = cats[k];
@@ -284,18 +291,19 @@
 
     // A card's rate on any purchase can beat a category offer: show it as the better choice.
     catList.forEach(function (x) {
-      var top = x.items[0].percent;
+      var top = x.items.length ? x.items[0].percent : 0;
       baseCards.forEach(function (b) {
         var has = x.items.some(function (i) { return i.card.id === b.card.id; });
         if (!has && b.percent > top) x.items.push({ card: b.card, percent: b.percent, base: true });
       });
       x.items.sort(function (a, b) { return b.percent - a.percent || sortCards(a.card, b.card); });
     });
+    catList = catList.filter(function (x) { return x.items.length; });
   }
 
   // For each card: the categories where it is the best choice.
   function isTop(catName, cardId) {
-    var items = cats[catName].items, top = items[0].percent;
+    var items = cats[catName].items, top = items.length ? items[0].percent : 0;
     return items.some(function (i) { return i.card.id === cardId && i.percent === top; });
   }
 
@@ -331,12 +339,18 @@
       }).join("");
       html.push(
         '<article class="cat"><div class="cat-head"><div><div class="cat-name">' + esc(c.name) + "</div>" +
-        (c.notes.length ? '<div class="cat-note">' + esc(c.items.filter(function (i) { return i.note; }).map(function (i) {
-          return (c.items.length > 1 ? i.card.bank + ": " : "") + i.note;
-        }).join("; ")) + "</div>" : "") +
+        (function () {
+          var n = c.items.filter(function (i) { return i.note; }).map(function (i) {
+            return (c.items.length > 1 ? i.card.bank + ": " : "") + i.note;
+          }).join("; ");
+          return n ? '<div class="cat-note">' + esc(n) + "</div>" : "";
+        })() +
         '</div><span class="pct">' + fmt(top) + '</span></div><div class="best">' + bestChips + "</div>" +
         (rest.length ? '<div class="others">' + rest.map(function (i) {
           return '<span class="other">' + swatch(i.card) + esc(cardLabel(i.card)) + (i.base ? " · на всё" : "") + " <b>" + fmt(i.percent) + "</b></span>";
+        }).join("") + "</div>" : "") +
+        (c.off.length ? '<div class="others">' + c.off.map(function (i) {
+          return '<span class="other off">' + swatch(i.card) + esc(cardLabel(i.card)) + " <b>" + fmt(i.percent) + "</b> · " + esc(i.card.offNote || "не активна") + "</span>";
         }).join("") + "</div>" : "") +
         "</article>"
       );
@@ -358,7 +372,7 @@
 
   function renderCards(q) {
     var html = [];
-    cards.slice().sort(sortCards).forEach(function (c) {
+    cards.slice().sort(function (a, b) { return (a.off ? 1 : 0) - (b.off ? 1 : 0) || sortCards(a, b); }).forEach(function (c) {
       var own = offers.filter(function (o) { return o.card === c.id; })
         .sort(function (a, b) { return coll.compare(a.category, b.category); });
       var hit = !q || matches(c.bank + " " + c.name, q);
@@ -367,8 +381,9 @@
       var meta = [];
       if (c.limit) meta.push("лимит " + c.limit.toLocaleString("ru-RU") + " ₽/мес");
       if (c.unit) meta.push(c.unit);
+      if (c.off) meta.unshift(c.offNote || "не активна");
       html.push(
-        '<section class="card"><div class="card-face" style="--c:' + esc(c.color) + ";--on:" + onColor(c.color) + '">' +
+        '<section class="card' + (c.off ? " off" : "") + '"><div class="card-face" style="--c:' + esc(c.color) + ";--on:" + onColor(c.color) + '">' +
         '<div><div class="card-bank">' + esc(c.bank) + '</div><div class="card-name">' + esc(c.name) + "</div></div>" +
         '<div class="card-meta">' + esc(meta.join(" · ")) + "</div></div><ul class=\"rows\">" +
         rows.map(function (o) {
