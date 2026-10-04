@@ -214,7 +214,8 @@
   // Months that have their own categories ("2026-09"); offers without a month apply every month.
   var today = new Date(); today.setHours(0, 0, 0, 0);
   var curMonth = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0");
-  var months = ALL.map(function (o) { return o.month; }).filter(function (m, i, a) { return m && a.indexOf(m) === i; }).sort();
+  // Past months are dropped automatically.
+  var months = ALL.map(function (o) { return o.month; }).filter(function (m, i, a) { return m && m >= curMonth && a.indexOf(m) === i; }).sort();
   var month = months.indexOf(curMonth) !== -1 ? curMonth : (months.filter(function (m) { return m > curMonth; })[0] || months[months.length - 1] || null);
   function monthName(m) {
     var d = new Date(m + "-01T00:00:00");
@@ -425,6 +426,7 @@
     var label = monthName(m);
     return '<button class="month" role="tab" data-month="' + m + '">' + label.charAt(0).toUpperCase() + label.slice(1) + "</button>";
   }).join("");
+  monthsEl.hidden = months.length < 2;
   monthsEl.addEventListener("click", function (e) {
     var b = e.target.closest(".month");
     if (b) { month = b.dataset.month; render(); }
