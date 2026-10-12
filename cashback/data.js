@@ -4,14 +4,16 @@
 //          unit ("₽" по умолчанию или "баллы"/"мили"),
 //          months ({ "ГГГГ-ММ": { base, baseNote, off, offNote } } — переопределения на месяц;
 //          off: true — карта не участвует в выборе лучшей, например исчерпан лимит).
+//          off/offNote можно задать и прямо у карты — тогда она отключена во всех месяцах.
 // offers — категории: card (id карты), category, percent, note (необязательно),
 //          month ("ГГГГ-ММ" — категория этого месяца; без него действует всегда),
 //          until (последний день акции, ГГГГ-ММ-ДД; после него скрывается).
 window.CASHBACK = {
   demo: false,
-  updated: "2026-10-04",
+  updated: "2026-10-12",
   cards: [
-    { id: "yandex-pay", bank: "Яндекс Банк", name: "Карта Пэй", color: "#7B4DFF", base: 2, baseNote: "онлайн и на кассе", unit: "баллы Плюса" },
+    { id: "yandex-pay", bank: "Яндекс Банк", name: "Карта Пэй", color: "#7B4DFF", base: 2, baseNote: "онлайн и на кассе", unit: "баллы Плюса",
+      off: true, offNote: "временно отключена" },
     { id: "alfa", bank: "Альфа-Банк", name: "Альфа-Карта", color: "#EF3124" },
     { id: "raif", bank: "Райффайзенбанк", name: "Карта с кэшбэком", color: "#FEE600", base: 1.5 },
     { id: "otp", bank: "ОТП Банк", name: "Карта", color: "#AEEA00", base: 1,
