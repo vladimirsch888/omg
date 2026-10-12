@@ -27,7 +27,6 @@ window.CASHBACK = {
     { card: "yandex-pay", month: "2026-10", category: "АЗС", percent: 3, note: "через Яндекс Заправки" },
 
     // Альфа-Банк — октябрь
-    { card: "alfa", month: "2026-10", category: "Еаптека", percent: 12, note: "онлайн-аптека" },
     { card: "alfa", month: "2026-10", category: "Кафе и рестораны", percent: 4 },
     { card: "alfa", month: "2026-10", category: "Продукты", percent: 1 },
     { card: "alfa", month: "2026-10", category: "Животные", percent: 5, note: "зоомагазины и ветклиники" },
